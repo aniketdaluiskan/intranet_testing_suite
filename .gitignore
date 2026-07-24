@@ -1,0 +1,11 @@
+node_modules
+dist
+*.log
+*.tsbuildinfo
+.DS_Store
+
+# python venv / IDE — not part of the web app, don't publish
+.venv
+.idea
+__pycache__
+*.pyc
