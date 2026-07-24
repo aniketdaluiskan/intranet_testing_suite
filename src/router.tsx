@@ -48,8 +48,19 @@ function refresh(): void {
 }
 
 export function navigate(to: string): void {
+  // Parse the target (accepts "/x", "x", or a full URL) to isolate path/query/hash.
   const u = new URL(to, window.location.origin);
-  const full = BASE + u.pathname + u.search + u.hash; // prepend base for the real URL
+  // Resolve against the app's BASE path (e.g. "/intranet_testing_suite" on GitHub
+  // Pages), NOT the bare origin. If we used only the origin, the base prefix would
+  // be dropped from the address bar on every navigation — the SPA keeps working in
+  // that tab, but a refresh/bookmark/share of the URL would hit the wrong site.
+  // Idempotent: if the caller already included BASE, don't add it a second time.
+  const alreadyBased =
+    !!BASE && (u.pathname === BASE || u.pathname.startsWith(BASE + "/"));
+  const path = alreadyBased
+    ? u.pathname
+    : BASE + (u.pathname.startsWith("/") ? u.pathname : "/" + u.pathname);
+  const full = path + u.search + u.hash;
   const cur = window.location.pathname + window.location.search + window.location.hash;
   if (full === cur) {
     // Same URL: still bump the key so labels churn on repeat clicks.
