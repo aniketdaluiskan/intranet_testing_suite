@@ -5,6 +5,7 @@ import { capacityOf, type AppDef } from "./registry";
 import { pii, genValue } from "../lib/pii";
 import { hostFor } from "../lib/hosts";
 import { usePanel, closePanel } from "./panel";
+import { ScenariosLayout } from "./scenarios";
 
 /* ══════════════ shared chrome ══════════════ */
 
@@ -2638,6 +2639,7 @@ const BY_ID: Record<string, FC<{ app: AppDef }>> = {
   git: RepoLayout,
   bitbucket: RepoLayout,
   jenkins: CiLayout,
+  capturelab: ScenariosLayout,
 };
 
 export function getLayout(app: AppDef): FC<{ app: AppDef }> {

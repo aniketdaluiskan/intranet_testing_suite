@@ -98,6 +98,7 @@ export const APPS: AppDef[] = [
   { id: "okta", name: "Okta", monogram: "Ok", accent: "#00648f", blurb: "Identity & SSO", kind: "records" },
   { id: "concur", name: "Concur", monogram: "Cn", accent: "#c4551d", blurb: "Expenses & travel", kind: "records" },
   { id: "pagerduty", name: "PagerDuty", monogram: "Pd", accent: "#0a8f3c", blurb: "Incident response", kind: "records" },
+  { id: "capturelab", name: "Capture Lab", monogram: "CL", accent: "#0e7490", blurb: "Iframes, Shadow DOM, postMessage & deep DOM", kind: "records" },
 ];
 
 export function getApp(id: string): AppDef | undefined {
