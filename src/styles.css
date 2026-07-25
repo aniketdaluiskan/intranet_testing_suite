@@ -965,6 +965,27 @@ fieldset.radios legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
 .modal-body { padding: 16px 18px; overflow: auto; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px;
   border-top: 1px solid var(--line); background: #fafbfc; }
+.modal-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 20px; padding: 1px 8px; margin-left: 10px; }
+.modal-head .modal-x { margin-left: auto; }
+.tbtn.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+.tbtn.danger:hover { filter: brightness(1.05); color: #fff; }
+.act-confirm { display: flex; gap: 14px; align-items: flex-start; }
+.act-icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; font-weight: 800; flex: 0 0 auto; }
+.act-icon.ok { background: #e7f6ec; color: #1c7a43; }
+.act-icon.bad { background: #fdeaea; color: #c0392b; }
+.act-confirm p { margin: 4px 0 10px; font-size: 13px; }
+.act-summary { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.act-sum-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
+.act-sum-row:last-child { border-bottom: none; }
+.act-sum-row span { color: var(--muted); }
+.act-form2 { display: flex; flex-direction: column; gap: 12px; }
+.act-form2 .fc > span { font-size: 11px; color: var(--muted); }
+.act-form2 select, .act-form2 textarea, .act-form2 .fc > input { border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 9px; font-size: 13px; font-family: inherit; width: 100%; }
+.act-form2 textarea { min-height: 90px; resize: vertical; }
+.act-form2 .fc.chk { flex-direction: row; align-items: center; gap: 8px; }
+.act-form2 .fc.chk input { width: auto; }
 
 /* ── ServiceNow-family distinct skins (Zendesk / PagerDuty / SAP / Okta) ── */
 .pd-oncall { display: flex; align-items: center; gap: 10px; background: #fbeaea; border: 1px solid #f3c2c2;

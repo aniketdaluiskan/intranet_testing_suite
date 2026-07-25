@@ -413,13 +413,19 @@ const MailLayout: FC<{ app: AppDef }> = ({ app }) => {
             <div className="focus-tabs">
               <button
                 className={"focus-tab" + (focused === 0 ? " on" : "")}
-                onClick={() => setFocused(0)}
+                onClick={() => {
+                  setFocused(0);
+                  v.goView("Focused", 60);
+                }}
               >
                 Focused
               </button>
               <button
                 className={"focus-tab" + (focused === 1 ? " on" : "")}
-                onClick={() => setFocused(1)}
+                onClick={() => {
+                  setFocused(1);
+                  v.goView("Other", 61);
+                }}
               >
                 Other
               </button>
@@ -1085,7 +1091,10 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
               <button
                 key={t}
                 className={"snow-nav-tab" + (i === navTab ? " on" : "")}
-                onClick={() => setNavTab(i)}
+                onClick={() => {
+                  setNavTab(i);
+                  v.goView(v.sec(i), i);
+                }}
               >
                 {t}
               </button>
@@ -2555,44 +2564,189 @@ const RecordsLayout: FC<{ app: AppDef }> = ({ app }) => {
   );
 };
 
-/* ══════════════ global "open record / action" modal ══════════════ */
+/* ══════════════ global action modal — the body designates the action ══════════════ */
+type ActKind = "create" | "confirm" | "assign" | "export" | "comment" | "delete" | "details";
+function actKind(t: string): ActKind {
+  const s = t.toLowerCase();
+  if (/(new|create|add|compose|schedule|draft|\bpo\b|book|raise)/.test(s)) return "create";
+  if (/(delete|void|deny|reject|abort|remove|revert|decline|deactivate|suspend|disable)/.test(s)) return "delete";
+  if (/(assign|reassign|escalate|owner|delegate|promote)/.test(s)) return "assign";
+  if (/(export|download|extract|generate|bank file|payslip)/.test(s)) return "export";
+  if (/(comment|note|reply|remind|mention|message|chat|ask)/.test(s)) return "comment";
+  if (/(approve|resolve|close|submit|post|merge|finish|send|sign|release|acknowledge|convert|publish|pass|run|build|start|present|reimburse|pay)/.test(s))
+    return "confirm";
+  return "details";
+}
+
 export function ActionPanel({ app }: { app: AppDef }) {
   const { title } = usePanel();
   const v = useView(app);
   const cap = capacityOf(app).perView;
   if (!title) return null;
+  const kind = actKind(title);
+  const base = v.lab(3).base;
+  const people = Array.from({ length: 5 }, (_, i) => pii("name", base + i * 3));
+
+  let body: ReactNode;
+  let confirmLabel = "Save";
+  let confirmCls = "tbtn primary";
+
+  switch (kind) {
+    case "confirm":
+      confirmLabel = title;
+      body = (
+        <div className="act-confirm">
+          <div className="act-icon ok">✓</div>
+          <div>
+            <p>
+              You’re about to <b>{title.toLowerCase()}</b> this record. Confirm the details below.
+            </p>
+            <div className="act-summary">
+              <div className="act-sum-row">
+                <span>Number</span>
+                <b>{genValue("code", base)}</b>
+              </div>
+              <div className="act-sum-row">
+                <span>Owner</span>
+                <b>{pii("name", base + 1)}</b>
+              </div>
+              <div className="act-sum-row">
+                <span>Status</span>
+                <StatusPill text={genValue("status", base + 2)} />
+              </div>
+              <div className="act-sum-row">
+                <span>Amount</span>
+                <b>{pii("amount", base + 3)}</b>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "assign":
+      confirmLabel = "Assign";
+      body = (
+        <div className="act-form2">
+          <label className="fc">
+            <span>Assign to</span>
+            <select aria-label="Assign to">
+              {people.map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </select>
+          </label>
+          <label className="fc">
+            <span>Assignment group</span>
+            <select aria-label="Assignment group">
+              <option>Service Desk</option>
+              <option>Network</option>
+              <option>Database</option>
+              <option>Applications</option>
+            </select>
+          </label>
+          <label className="fc">
+            <span>Priority</span>
+            <select aria-label="Priority">
+              <option>1 - Critical</option>
+              <option>2 - High</option>
+              <option>3 - Moderate</option>
+              <option>4 - Low</option>
+            </select>
+          </label>
+          <label className="fc chk">
+            <input type="checkbox" defaultChecked /> Notify assignee by email
+          </label>
+        </div>
+      );
+      break;
+    case "export":
+      confirmLabel = "Export";
+      body = (
+        <div className="act-form2">
+          <fieldset className="fc radios">
+            <legend>Format</legend>
+            {["CSV", "XLSX", "PDF", "JSON"].map((o) => (
+              <label className="radio" key={o}>
+                <input type="radio" name="export-fmt" defaultChecked={o === "XLSX"} /> {o}
+              </label>
+            ))}
+          </fieldset>
+          <label className="fc">
+            <span>Rows</span>
+            <select aria-label="Rows">
+              <option>Current view</option>
+              <option>All records</option>
+              <option>Selected only</option>
+            </select>
+          </label>
+          <label className="fc chk">
+            <input type="checkbox" defaultChecked /> Include column headers
+          </label>
+        </div>
+      );
+      break;
+    case "comment":
+      confirmLabel = "Post";
+      body = (
+        <div className="act-form2">
+          <label className="fc">
+            <span>Comment</span>
+            <textarea aria-label="Comment" placeholder="Add your comment…" />
+          </label>
+          <label className="fc chk">
+            <input type="checkbox" defaultChecked /> Notify watchers
+          </label>
+        </div>
+      );
+      break;
+    case "delete":
+      confirmLabel = title;
+      confirmCls = "tbtn danger";
+      body = (
+        <div className="act-confirm">
+          <div className="act-icon bad">!</div>
+          <div>
+            <p>
+              This will <b>{title.toLowerCase()}</b> record <b>{genValue("code", base)}</b>. This
+              action cannot be undone.
+            </p>
+          </div>
+        </div>
+      );
+      break;
+    case "create":
+    default:
+      confirmLabel = kind === "create" ? "Create" : "Save";
+      body = (
+        <CountedAttributes
+          lab={v.lab(3)}
+          valid={Math.min(cap.valid, 24)}
+          invalid={0}
+          appId={v.app.id}
+          showPII={v.showPII}
+          role={v.role}
+          variant="form"
+        />
+      );
+  }
+
   return (
     <div className="modal-scrim" onClick={closePanel}>
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <b>{title}</b>
+          <span className="modal-kind">{kind}</span>
           <button className="modal-x" aria-label="Close" onClick={closePanel}>
             ✕
           </button>
         </div>
-        <div className="modal-body">
-          <CountedAttributes
-            lab={v.lab(3)}
-            valid={Math.min(cap.valid, 24)}
-            invalid={0}
-            appId={v.app.id}
-            showPII={v.showPII}
-            role={v.role}
-            variant="form"
-          />
-        </div>
+        <div className="modal-body">{body}</div>
         <div className="modal-foot">
           <button className="tbtn" onClick={closePanel}>
             Cancel
           </button>
-          <button className="tbtn primary" onClick={closePanel}>
-            Save
+          <button className={confirmCls} onClick={closePanel}>
+            {confirmLabel}
           </button>
         </div>
       </div>
