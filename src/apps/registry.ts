@@ -83,6 +83,21 @@ export const APPS: AppDef[] = [
   { id: "monitoring", name: "Grafana", monogram: "GF", accent: "#f46800", blurb: "Metrics & alerts", kind: "analytics" },
   { id: "payroll", name: "Payroll", monogram: "PY", accent: "#0a7d5a", blurb: "Pay runs & tax", kind: "records" },
   { id: "insurance", name: "Insurance Claims", monogram: "IC", accent: "#6d28d9", blurb: "Claims processing", kind: "records" },
+  { id: "slack", name: "Slack", monogram: "Sl", accent: "#611f69", blurb: "Team messaging", kind: "chat" },
+  { id: "zoom", name: "Zoom", monogram: "Zm", accent: "#2d63ff", blurb: "Meetings & webinars", kind: "records" },
+  { id: "workday", name: "Workday", monogram: "Wy", accent: "#f38b00", blurb: "HR & finance", kind: "forms" },
+  { id: "zendesk", name: "Zendesk", monogram: "Zd", accent: "#17494d", blurb: "Support tickets", kind: "records" },
+  { id: "powerbi", name: "Power BI", monogram: "PB", accent: "#b8860b", blurb: "Business intelligence", kind: "analytics" },
+  { id: "drive", name: "Drive", monogram: "Dv", accent: "#1a73e8", blurb: "Cloud file storage", kind: "docs" },
+  { id: "docusign", name: "DocuSign", monogram: "Ds", accent: "#c56a12", blurb: "E-signature envelopes", kind: "forms" },
+  { id: "notion", name: "Notion", monogram: "Nt", accent: "#2f3437", blurb: "Docs & wikis", kind: "editor" },
+  { id: "bitbucket", name: "Bitbucket", monogram: "Bb", accent: "#2160e6", blurb: "Source control", kind: "repo" },
+  { id: "asana", name: "Asana", monogram: "As", accent: "#d6567a", blurb: "Work management", kind: "board" },
+  { id: "kibana", name: "Kibana", monogram: "Kb", accent: "#c7285a", blurb: "Log analytics", kind: "analytics" },
+  { id: "sap", name: "SAP", monogram: "Sa", accent: "#0a6ed1", blurb: "ERP", kind: "records" },
+  { id: "okta", name: "Okta", monogram: "Ok", accent: "#00648f", blurb: "Identity & SSO", kind: "records" },
+  { id: "concur", name: "Concur", monogram: "Cn", accent: "#c4551d", blurb: "Expenses & travel", kind: "records" },
+  { id: "pagerduty", name: "PagerDuty", monogram: "Pd", accent: "#0a8f3c", blurb: "Incident response", kind: "records" },
 ];
 
 export function getApp(id: string): AppDef | undefined {

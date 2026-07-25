@@ -269,6 +269,153 @@ const SCHEMAS: Record<string, Schema> = {
     sections: ["Home", "Insert", "Design", "Transitions", "Review", "View"],
     actions: ["New Slide", "Layout", "Present", "Comment", "Share", "Export"],
   },
+  slack: {
+    fields: [
+      f("Channel", "text"), f("Sender", "name"), f("Message", "desc"),
+      f("Posted", "datetime"), f("Thread Replies", "count"), f("Reactions", "count"),
+      f("Pinned", "bool"), f("Workspace", "text"), f("Mentions", "name"),
+    ],
+    sections: ["Threads", "Mentions & reactions", "Drafts", "Saved items", "Channels", "Direct messages", "Huddles", "Apps"],
+    actions: ["New message", "Create channel", "Invite people", "Start huddle", "Pin", "React", "Reply in thread"],
+  },
+  zoom: {
+    fields: [
+      f("Meeting Topic", "text"), f("Meeting ID", "code"), f("Host", "name"),
+      f("Start Time", "datetime"), f("Duration", "count"), f("Passcode", "code"),
+      f("Waiting Room", "bool"), f("Record Automatically", "bool"), f("Participants", "count"),
+      f("Recurring", "bool"), f("Organizer Email", "email"),
+    ],
+    sections: ["Upcoming", "Previous", "Personal Room", "Recordings", "Webinars", "Contacts", "Whiteboards", "Settings"],
+    actions: ["Schedule", "Start", "Join", "Invite", "Record", "Share Screen", "End"],
+  },
+  workday: {
+    fields: [
+      f("Worker ID", "empId"), f("Worker Name", "name"), f("Position", "text"),
+      f("Department", "department"), f("Manager", "name"), f("Hire Date", "date"),
+      f("Compensation", "money"), f("Location", "city"), f("Cost Center", "code"),
+      f("Time Off Balance", "count"), f("Business Title", "text"), f("Employment Status", "status"),
+    ],
+    sections: ["Home", "My Team", "Time Off", "Pay", "Benefits", "Talent", "Recruiting", "Expenses"],
+    actions: ["Request Time Off", "Approve", "Change Job", "Add Worker", "Run Report", "Delegate"],
+  },
+  zendesk: {
+    fields: [
+      f("Ticket ID", "code"), f("Subject", "text"), f("Requester", "name"),
+      f("Requester Email", "email"), f("Priority", "priority"), f("Status", "status"),
+      f("Assignee", "name"), f("Group", "text"), f("Channel", "text"),
+      f("Tags", "text"), f("Satisfaction", "text"), f("First Response", "datetime"),
+    ],
+    sections: ["Views", "Your unsolved tickets", "Unassigned", "Recently updated", "Suspended", "Knowledge base", "Explore", "Admin"],
+    actions: ["New ticket", "Assign", "Solve", "Escalate", "Add note", "Merge", "Macro"],
+  },
+  powerbi: {
+    fields: [
+      f("Report Name", "text"), f("Workspace", "text"), f("Dataset", "text"),
+      f("Measure", "text"), f("Value", "money"), f("Target", "money"),
+      f("Variance %", "percent"), f("Region", "country"), f("Owner", "name"),
+      f("Last Refresh", "datetime"), f("Sensitivity", "text"),
+    ],
+    sections: ["Home", "Workspaces", "Reports", "Dashboards", "Datasets", "Dataflows", "Scorecards", "Apps"],
+    actions: ["New Report", "Refresh", "Publish", "Subscribe", "Export", "Share", "Pin to Dashboard"],
+  },
+  drive: {
+    fields: [
+      f("File Name", "text"), f("Owner", "name"), f("Last Modified", "datetime"),
+      f("File Type", "text"), f("Size", "count"), f("Shared With", "name"),
+      f("Location", "text"), f("Starred", "bool"), f("Version", "code"),
+    ],
+    sections: ["My Drive", "Shared with me", "Recent", "Starred", "Shared drives", "Spam", "Trash", "Storage"],
+    actions: ["New", "Upload", "Share", "Move", "Rename", "Download", "Delete"],
+  },
+  docusign: {
+    fields: [
+      f("Envelope ID", "code"), f("Document Name", "text"), f("Sender", "name"),
+      f("Recipient", "name"), f("Recipient Email", "email"), f("Envelope Status", "status"),
+      f("Sent Date", "date"), f("Completed Date", "date"), f("Signing Order", "count"),
+      f("Requires Signature", "bool"), f("Consent Given", "bool"),
+    ],
+    sections: ["Inbox", "Sent", "Drafts", "Action Required", "Waiting for Others", "Completed", "Templates", "Reports"],
+    actions: ["New Envelope", "Sign", "Send", "Void", "Correct", "Remind", "Download"],
+  },
+  notion: {
+    fields: [
+      f("Page Title", "text"), f("Workspace", "text"), f("Author", "name"),
+      f("Last Edited", "datetime"), f("Status", "status"), f("Assignee", "name"),
+      f("Tags", "text"), f("Priority", "priority"), f("Due Date", "date"),
+    ],
+    sections: ["Getting Started", "Teamspaces", "Shared", "Private", "Templates", "Trash", "Settings"],
+    actions: ["New Page", "New Database", "Share", "Comment", "Duplicate", "Move to", "Export"],
+  },
+  bitbucket: {
+    fields: [
+      f("Repository", "text"), f("Branch", "text"), f("Commit", "code"),
+      f("Author", "name"), f("Message", "text"), f("Pull Request", "code"),
+      f("Reviewer", "name"), f("Build Status", "status"), f("Files Changed", "count"),
+      f("Merged", "bool"),
+    ],
+    sections: ["Source", "Commits", "Branches", "Pull requests", "Pipelines", "Deployments", "Downloads", "Settings"],
+    actions: ["Clone", "Create branch", "Create PR", "Merge", "Approve", "Decline", "Tag"],
+  },
+  asana: {
+    fields: [
+      f("Task Name", "text"), f("Assignee", "name"), f("Due Date", "date"),
+      f("Project", "text"), f("Section", "text"), f("Priority", "priority"),
+      f("Status", "status"), f("Completed", "bool"), f("Collaborators", "name"),
+      f("Tags", "text"),
+    ],
+    sections: ["My Tasks", "Inbox", "Portfolios", "Goals", "Reporting", "Projects", "Board", "Timeline"],
+    actions: ["Add task", "Assign", "Complete", "Set due date", "Add subtask", "Comment", "Move section"],
+  },
+  kibana: {
+    fields: [
+      f("Log Level", "text"), f("Message", "desc"), f("Host", "ipv4"),
+      f("Service", "text"), f("Timestamp", "datetime"), f("Status Code", "count"),
+      f("Response Time", "count"), f("Index", "text"), f("Trace ID", "code"),
+      f("Environment", "text"),
+    ],
+    sections: ["Discover", "Dashboards", "Visualizations", "Alerts", "Maps", "Logs", "APM", "Stack Management"],
+    actions: ["New Search", "Add Filter", "Create Visualization", "Save", "Share", "Set Alert", "Refresh"],
+  },
+  sap: {
+    fields: [
+      f("Document Number", "code"), f("Company Code", "code"), f("Vendor", "text"),
+      f("Material", "code"), f("Quantity", "count"), f("Net Amount", "money"),
+      f("Currency", "text"), f("Posting Date", "date"), f("GL Account", "code"),
+      f("Purchase Order", "code"), f("Plant", "text"), f("Cost Center", "code"),
+    ],
+    sections: ["Home", "Purchasing", "Sales", "Finance", "Materials", "Production", "Inventory", "Reports"],
+    actions: ["Create PO", "Post", "Approve", "Release", "Reverse", "Display", "Export"],
+  },
+  okta: {
+    fields: [
+      f("User", "name"), f("Username", "email"), f("Status", "status"),
+      f("Application", "text"), f("Group", "text"), f("Role", "text"),
+      f("Last Login", "datetime"), f("MFA Enrolled", "bool"), f("Department", "department"),
+      f("Provisioned", "bool"),
+    ],
+    sections: ["Dashboard", "Directory", "Applications", "Security", "Workflows", "Reports", "Settings", "Devices"],
+    actions: ["Add Person", "Assign App", "Activate", "Deactivate", "Reset Password", "Reset MFA", "Suspend"],
+  },
+  concur: {
+    fields: [
+      f("Report Name", "text"), f("Employee", "name"), f("Expense Type", "text"),
+      f("Amount", "money"), f("Currency", "text"), f("Transaction Date", "date"),
+      f("Vendor", "text"), f("Payment Type", "text"), f("Approval Status", "status"),
+      f("Billable", "bool"), f("Receipt Attached", "bool"), f("Cost Center", "code"),
+    ],
+    sections: ["Home", "Expense", "Requests", "Travel", "Approvals", "Reports", "App Center", "Profile"],
+    actions: ["New Report", "Add Expense", "Attach Receipt", "Submit", "Approve", "Reject", "Reimburse"],
+  },
+  pagerduty: {
+    fields: [
+      f("Incident ID", "code"), f("Title", "text"), f("Urgency", "priority"),
+      f("Status", "status"), f("Service", "text"), f("Assigned To", "name"),
+      f("Escalation Policy", "text"), f("Triggered At", "datetime"), f("Acknowledged", "bool"),
+      f("Priority", "priority"), f("Resolved At", "datetime"),
+    ],
+    sections: ["Incidents", "Services", "On-Call Schedules", "Escalation Policies", "Alerts", "Analytics", "Automation", "Status Pages"],
+    actions: ["Acknowledge", "Resolve", "Reassign", "Escalate", "Snooze", "Add Note", "Run Response Play"],
+  },
 };
 
 /**

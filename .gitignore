@@ -9,3 +9,7 @@ dist
 .idea
 __pycache__
 *.pyc
+
+# internal design notes — NEVER publish (contain internal references)
+DESIGN.md
+README.md

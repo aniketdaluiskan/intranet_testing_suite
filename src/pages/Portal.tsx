@@ -6,6 +6,7 @@ import { makeLabeler } from "../lib/labeler";
 import { pii } from "../lib/pii";
 import { appRole, PROCESS_APPS, NOISE_APPS } from "../lib/controls";
 import { multiPort, appPortOrigin } from "../lib/ports";
+import { endpointFor } from "../lib/hosts";
 import { getSessionId } from "../session";
 
 function fmt(n: number): string {
@@ -85,6 +86,7 @@ export default function Portal() {
         {APPS.map((app, idx) => {
           const c = capacityOf(app);
           const port = 5174 + idx;
+          const ep = endpointFor(app.id, idx);
           return (
             <div className="tile-wrap" key={app.id}>
               <button
@@ -106,6 +108,12 @@ export default function Portal() {
                   </span>
                 </div>
                 <p className="tile-blurb">{app.blurb}</p>
+                <div className="tile-endpoint" title={`${ep.ip}:${ep.port}`}>
+                  <span className="svc-dot" /> {ep.host}
+                  <span className="svc-ip">
+                    {ep.ip}:{ep.port}
+                  </span>
+                </div>
                 <div className="tile-caps">
                   <span className="cap-total">{fmt(c.total)} attrs</span>
                   <span className="cap-valid">{fmt(c.valid)} valid</span>
