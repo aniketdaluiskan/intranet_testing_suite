@@ -807,7 +807,7 @@ function RibbonEditor({ app, kind }: { app: AppDef; kind: "word" | "slides" | "w
         <b>{app.name}</b>
         <EnvChip id={app.id} />
         <span className="ed-file">
-          {v.fld(0)}.{kind === "slides" ? "pptx" : "docx"}
+          {genValue("text", v.tick).replace(/\s+/g, "-")}.{kind === "slides" ? "pptx" : "docx"}
         </span>
         <span className="ed-saved">Saved to cloud</span>
         <div className="ed-collab">
@@ -817,7 +817,7 @@ function RibbonEditor({ app, kind }: { app: AppDef; kind: "word" | "slides" | "w
       </header>
       {app.id !== "notion" && <MenuBar v={v} />}
       {app.id !== "notion" && <Tabs v={v} labels={tabs} active={tab} onPick={setTab} />}
-      {app.id !== "notion" && <ToolbarButtons v={v} n={10} />}
+      {app.id !== "notion" && <ToolbarButtons v={v} n={6} />}
       {app.id !== "notion" && (
       <div className="ed-extra">
         <label>
@@ -866,19 +866,21 @@ function RibbonEditor({ app, kind }: { app: AppDef; kind: "word" | "slides" | "w
           <Nav v={v} n={9} active={0} onPick={(i) => v.goView(v.sec(i), i)} cls="page-tree" />
         )}
         <main className={kind === "slides" ? "slide-canvas" : "doc-canvas"}>
-          <h1>{v.sec(0)}</h1>
+          <h1>
+            {genValue("text", v.tick)} {kind === "wiki" ? "Guide" : "Report"}
+          </h1>
           {kind !== "slides" && (
             <>
-              <p>
-                {v.fld(1)} — {pii("date", v.tick)}. Prepared by {pii("name", v.tick + 3)}.
+              <p className="doc-meta">
+                Prepared by {pii("name", v.tick + 3)} · {pii("date", v.tick)} ·{" "}
+                {genValue("department", v.tick + 1)}
               </p>
-              <p>
-                {v.fld(2)}. {v.fld(3)}.
-              </p>
-              <h2>{v.sec(1)}</h2>
+              <p>{genValue("desc", v.tick + 2)}</p>
+              <p>{genValue("desc", v.tick + 5)}</p>
+              <h2>{genValue("text", v.tick + 7)}</h2>
             </>
           )}
-          {kind === "slides" && <div className="slide-box">{v.sec(1)}</div>}
+          {kind === "slides" && <div className="slide-box">{genValue("text", v.tick + 1)}</div>}
           <CountedAttributes
             lab={v.lab(1)}
             valid={cap.valid}
@@ -945,7 +947,7 @@ const NoteLayout: FC<{ app: AppDef }> = ({ app }) => {
       </div>
       <div className="on-body">
         <main className="on-canvas">
-          <h1 className="note-title">{v.fld(0)}</h1>
+          <h1 className="note-title">{genValue("text", v.tick)}</h1>
           <div className="note-date">{pii("date", v.tick)}</div>
           <CountedAttributes
             lab={v.lab(1)}
@@ -965,10 +967,10 @@ const NoteLayout: FC<{ app: AppDef }> = ({ app }) => {
               className={"on-pg" + (i === pg ? " on" : "")}
               onClick={() => {
                 setPg(i);
-                v.goView(v.fld(i), 20 + i);
+                v.goView(genValue("text", v.lab(1).base + i), 20 + i);
               }}
             >
-              {v.fld(i)}
+              {genValue("text", v.lab(1).base + i)}
             </button>
           ))}
         </aside>
@@ -989,7 +991,7 @@ const ExcelLayout: FC<{ app: AppDef }> = ({ app }) => {
         <Home v={v} />
         <b>{app.name}</b>
         <EnvChip id={app.id} />
-        <span className="ed-file">{v.fld(0)}.xlsx</span>
+        <span className="ed-file">{genValue("text", v.tick).replace(/\s+/g, "-")}.xlsx</span>
         <input
           className="tellme"
           id="TellMe-SearchBox"
@@ -1011,7 +1013,7 @@ const ExcelLayout: FC<{ app: AppDef }> = ({ app }) => {
           defaultValue={`${String.fromCharCode(65 + (v.tick % 8))}${(v.tick % 50) + 1}`}
         />
         <span className="fx">fx</span>
-        <input className="formula" defaultValue={`=${v.act(0)}`} />
+        <input className="formula" defaultValue={`=SUM(A1:A${(v.tick % 40) + 2})`} />
       </div>
       <main className="sheet">
         <input
@@ -1690,6 +1692,7 @@ const HRMSLayout: FC<{ app: AppDef }> = ({ app }) => {
   const [ptab, setPtab] = useActive(0);
   const base = v.lab(1).base;
   const ptabs = ["Personal", "Job", "Compensation", "Time Off", "Documents"];
+  const TITLES = ["Analyst", "Manager", "Engineer", "Specialist", "Director", "Coordinator", "Lead", "Consultant"];
   return (
     <div className="app hrms" style={accentVar(v.accent)}>
       <AppTopBar v={v} search="Search people" />
@@ -1712,7 +1715,7 @@ const HRMSLayout: FC<{ app: AppDef }> = ({ app }) => {
                 <button key={i} type="button" className="person" onClick={() => v.go(nm, i)}>
                   <span className="avatar md">{nm.split(" ").map((s) => s[0]).join("")}</span>
                   <span className="p-name">{nm}</span>
-                  <span className="p-title">{v.fld(i)}</span>
+                  <span className="p-title">{TITLES[i % TITLES.length]}</span>
                   <span className="p-dept">{genValue("department", base + i)}</span>
                 </button>
               );
@@ -1979,6 +1982,8 @@ const AzureLayout: FC<{ app: AppDef }> = ({ app }) => {
   const cap = capacityOf(app).perView;
   const [blade, setBlade] = useActive(0);
   const base = v.lab(1).base;
+  const resName = (i: number) =>
+    ["vm", "sql", "app", "kv", "stg", "cosmos"][i % 6] + "-" + genValue("code", base + i).toLowerCase();
   const nav = [
     "Home",
     "Resource groups",
@@ -2015,7 +2020,7 @@ const AzureLayout: FC<{ app: AppDef }> = ({ app }) => {
         </nav>
         <main className="fr-main">
           <div className="crumb">
-            Home › Resource groups › {v.sec(0)} › {v.fld(0)}
+            Home › Resource groups › {v.sec(0)} › {resName(0)}
           </div>
           <div className="blade-tabs">
             {tabs.map((t, i) => (
@@ -2086,7 +2091,7 @@ const AzureLayout: FC<{ app: AppDef }> = ({ app }) => {
                     />
                   </td>
                   <td>
-                    <span className="az-ic sm" style={{ background: v.accent }} /> {v.fld(i)}
+                    <span className="az-ic sm" style={{ background: v.accent }} /> {resName(i)}
                   </td>
                   <td>{genValue("text", base + i)}</td>
                   <td>East US {i % 3}</td>
