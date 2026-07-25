@@ -939,3 +939,23 @@ fieldset.radios legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
 /* explicit label→value pairs inside chat/board (non-editable, still captured) */
 .kv-k { font-weight: 700; color: var(--ink); }
 .kv-v { color: var(--ink); }
+
+/* shared case-reference chip (the cross-app stitching Id, shown once per screen) */
+.ctx-id { display: inline-flex; align-items: center; gap: 10px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 20px; padding: 5px 14px; margin-bottom: 12px; font-size: 12px; }
+.ctx-id .kv-k { color: var(--muted); font-weight: 600; }
+.ctx-id .kv-v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* global open-record / action modal */
+.modal-scrim { position: fixed; inset: 0; background: rgba(17,24,39,.45); z-index: 9000;
+  display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; }
+.modal { background: #fff; border-radius: 12px; width: min(760px, 100%); max-height: 84vh;
+  display: flex; flex-direction: column; box-shadow: 0 24px 64px rgba(0,0,0,.35); overflow: hidden; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;
+  border-bottom: 1px solid var(--line); }
+.modal-head b { font-size: 15px; }
+.modal-x { border: none; background: var(--bg); width: 28px; height: 28px; border-radius: 6px; font-size: 13px; }
+.modal-x:hover { background: #e5e7eb; }
+.modal-body { padding: 16px 18px; overflow: auto; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px;
+  border-top: 1px solid var(--line); background: #fafbfc; }

@@ -1,9 +1,10 @@
 import { useRef, useState, type FC, type ReactNode } from "react";
 import { accentVar, useActive, useSelection, useView, type View } from "./view";
-import { CountedAttributes, fieldItems, InvalidZone } from "./attrs";
+import { CountedAttributes, fieldItems } from "./attrs";
 import { capacityOf, type AppDef } from "./registry";
 import { pii, genValue } from "../lib/pii";
 import { hostFor } from "../lib/hosts";
+import { usePanel, closePanel } from "./panel";
 
 /* ══════════════ shared chrome ══════════════ */
 
@@ -176,7 +177,12 @@ function AppTopBar({
       )}
       <div className="app-top-right">
         {right}
-        <button className="top-ic" type="button" aria-label="Notifications">
+        <button
+          className="top-ic"
+          type="button"
+          aria-label="Notifications"
+          onClick={() => v.go("Notifications", 81)}
+        >
           🔔
         </button>
         <Avatar seed={v.lab(4).base + 5} />
@@ -361,7 +367,7 @@ const MailLayout: FC<{ app: AppDef }> = ({ app }) => {
   const [focused, setFocused] = useActive(0);
   const folders = ["Inbox", "Sent Items", "Drafts", "Deleted", "Archive", "Junk Email"];
   const base = v.lab(1).base;
-  const msgs = fieldItems(app.id, base, cap.valid, v.showPII);
+  const msgs = fieldItems(app.id, base, 12, v.showPII); // decorative email rows
   const pick = useSelection(msgs.length);
   const current = msgs[Math.min(sel, msgs.length - 1)];
   return (
@@ -436,12 +442,12 @@ const MailLayout: FC<{ app: AppDef }> = ({ app }) => {
                   className="msg-open"
                   onClick={() => {
                     setSel(i);
-                    v.goView(m.label, i);
+                    v.goView(genValue("text", base + i), i);
                   }}
                 >
                   <span className="msg-from">{pii("name", base + i)}</span>
-                  <span className="msg-subj">{m.label}</span>
-                  <span className="msg-prev">{m.value || "(no preview)"}</span>
+                  <span className="msg-subj">{genValue("text", base + i)}</span>
+                  <span className="msg-prev">{m.value || genValue("desc", base + i)}</span>
                   <span className="msg-when">{pii("date", base + i * 3)}</span>
                 </button>
                 <input
@@ -453,12 +459,11 @@ const MailLayout: FC<{ app: AppDef }> = ({ app }) => {
               </li>
             ))}
           </ul>
-          <InvalidZone count={cap.invalid} />
         </section>
         <section className="mail-read">
           {current && (
             <>
-              <div className="read-subj">{current.label}</div>
+              <div className="read-subj">{genValue("text", base + sel)}</div>
               <div className="read-meta">
                 <span>
                   <Avatar seed={base + sel} /> <b>{pii("name", base + sel)}</b> &lt;
@@ -466,10 +471,17 @@ const MailLayout: FC<{ app: AppDef }> = ({ app }) => {
                 </span>
                 <span className="read-date">{pii("date", base + sel)}</span>
               </div>
-              <div className="read-body">
-                {current.value ? `${current.label}: ${current.value}. ` : ""}
-                {genValue("desc", base + sel)}
-              </div>
+              <div className="read-body">{genValue("desc", base + sel)}</div>
+              <div className="pane-h">Message details</div>
+              <CountedAttributes
+                lab={v.lab(1)}
+                valid={cap.valid}
+                invalid={cap.invalid}
+                appId={v.app.id}
+                showPII={v.showPII}
+                role={v.role}
+                variant="form"
+              />
             </>
           )}
           <div className="compose">
@@ -483,7 +495,7 @@ const MailLayout: FC<{ app: AppDef }> = ({ app }) => {
                     i === 0
                       ? pii("email", base + i)
                       : i === 2 && current
-                        ? "RE: " + current.label
+                        ? "RE: " + genValue("text", base + sel)
                         : ""
                   }
                 />
@@ -577,10 +589,10 @@ const TeamsLayout: FC<{ app: AppDef }> = ({ app }) => {
           variant="chat"
         />
         <div className="teams-compose">
-          <button className="compose-ic" title="Format">
+          <button className="compose-ic" title="Format" onClick={() => v.goView("Format", 82)}>
             A
           </button>
-          <button className="compose-ic" title="Attach">
+          <button className="compose-ic" title="Attach" onClick={() => v.go("Attach file", 83)}>
             📎
           </button>
           <input placeholder={`Message # ${v.sec(ch)}`} aria-label="Message" />
@@ -607,21 +619,23 @@ const SlackLayout: FC<{ app: AppDef }> = ({ app }) => {
         <button className="home-dot light" onClick={v.goHome}>
           ⌂
         </button>
-        <button className="ws-badge">{app.monogram}</button>
-        <button className="rail-round" title="DMs">
+        <button className="ws-badge" onClick={() => v.goView(v.sec(0), 0)}>
+          {app.monogram}
+        </button>
+        <button className="rail-round" title="DMs" onClick={() => v.goView("Direct messages", 1)}>
           ✉
         </button>
-        <button className="rail-round" title="Activity">
+        <button className="rail-round" title="Activity" onClick={() => v.goView("Activity", 2)}>
           ◎
         </button>
-        <button className="rail-round add" title="Add">
+        <button className="rail-round add" title="Add" onClick={() => v.go("Add", 84)}>
           +
         </button>
       </nav>
       <aside className="slack-side" style={{ background: v.accent }}>
         <div className="slack-ws">
           <b>{v.sec(0)} HQ</b>
-          <button className="slack-compose" title="Compose">
+          <button className="slack-compose" title="Compose" onClick={() => v.go("New message", 85)}>
             ✎
           </button>
         </div>
@@ -676,10 +690,18 @@ const SlackLayout: FC<{ app: AppDef }> = ({ app }) => {
         </div>
         <div className="slack-compose-box">
           <div className="slack-fmt">
-            <button title="Bold">B</button>
-            <button title="Italic">i</button>
-            <button title="Link">🔗</button>
-            <button title="Attach">📎</button>
+            <button title="Bold" onClick={() => v.goView("Bold", 86)}>
+              B
+            </button>
+            <button title="Italic" onClick={() => v.goView("Italic", 87)}>
+              i
+            </button>
+            <button title="Link" onClick={() => v.go("Insert link", 88)}>
+              🔗
+            </button>
+            <button title="Attach" onClick={() => v.go("Attach file", 89)}>
+              📎
+            </button>
           </div>
           <input placeholder={`Message #${v.sec(ch).toLowerCase().replace(/\s+/g, "-")}`} aria-label="Message" />
           <button className="send-btn" onClick={() => v.go("Send", 99)}>
@@ -748,7 +770,7 @@ const CopilotLayout: FC<{ app: AppDef }> = ({ app }) => {
             variant="chat"
           />
           <div className="cp-prompt">
-            <button className="cp-attach" title="Attach">
+            <button className="cp-attach" title="Attach" onClick={() => v.go("Attach file", 90)}>
               📎
             </button>
             <input placeholder="Message Copilot…" aria-label="Prompt" />
@@ -1036,7 +1058,7 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
         <EnvChip id={app.id} />
         <input className="snow-nav-search" placeholder="Type filter text" aria-label="Filter navigator" />
         <div className="app-top-right">
-          <button className="top-ic" aria-label="Help">
+          <button className="top-ic" aria-label="Help" onClick={() => v.go("Help", 91)}>
             ?
           </button>
           <Avatar seed={v.lab(4).base + 5} />
@@ -1173,7 +1195,7 @@ const CrmLayout: FC<{ app: AppDef }> = ({ app }) => {
         <EnvChip id={app.id} />
         <input className="app-search" placeholder="Search Salesforce" aria-label="Search" />
         <div className="app-top-right">
-          <button className="top-ic" aria-label="Notifications">
+          <button className="top-ic" aria-label="Notifications" onClick={() => v.go("Notifications", 92)}>
             🔔
           </button>
           <Avatar seed={base + 5} />
@@ -1499,7 +1521,9 @@ const SharePointLayout: FC<{ app: AppDef }> = ({ app }) => {
           {app.monogram}
         </span>
         <b>{v.sec(0)} Team Site</b>
-        <button className="sp-follow">☆ Follow</button>
+        <button className="sp-follow" onClick={() => v.goView("Following", 93)}>
+          ☆ Follow
+        </button>
       </div>
       <div className="fr-body">
         <Nav v={v} n={8} active={active} onPick={setActive} cls="fr-side" />
@@ -2055,8 +2079,12 @@ const DashboardLayout: FC<{ app: AppDef }> = ({ app }) => {
       <AppTopBar v={v} search="Search" cls={flavor === "grafana" ? "dark" : ""} />
       {flavor === "grafana" && (
         <div className="grafana-timebar">
-          <button className="time-pick">🕘 Last 6 hours</button>
-          <button className="time-pick">⟳ 30s</button>
+          <button className="time-pick" onClick={() => v.goView("Time range", 94)}>
+            🕘 Last 6 hours
+          </button>
+          <button className="time-pick" onClick={() => v.goView("Refresh", 95)}>
+            ⟳ 30s
+          </button>
           <FilterToggle label="Live tail" />
         </div>
       )}
@@ -2178,9 +2206,15 @@ const RepoLayout: FC<{ app: AppDef }> = ({ app }) => {
         </span>
         <EnvChip id={app.id} />
         <div className="repo-stats">
-          <button className="repo-stat">☆ Star {(v.tick % 90) + 4}</button>
-          <button className="repo-stat">⑃ Fork {(v.tick % 30) + 1}</button>
-          <button className="repo-stat">👁 Watch</button>
+          <button className="repo-stat" onClick={() => v.go("Star", 96)}>
+            ☆ Star {(v.tick % 90) + 4}
+          </button>
+          <button className="repo-stat" onClick={() => v.go("Fork", 97)}>
+            ⑃ Fork {(v.tick % 30) + 1}
+          </button>
+          <button className="repo-stat" onClick={() => v.go("Watch", 98)}>
+            👁 Watch
+          </button>
         </div>
       </header>
       <Tabs v={v} labels={["Code", "Issues", "Pull requests", "Actions", "Wiki"]} active={tab} onPick={setTab} />
@@ -2416,6 +2450,51 @@ const RecordsLayout: FC<{ app: AppDef }> = ({ app }) => {
     </div>
   );
 };
+
+/* ══════════════ global "open record / action" modal ══════════════ */
+export function ActionPanel({ app }: { app: AppDef }) {
+  const { title } = usePanel();
+  const v = useView(app);
+  const cap = capacityOf(app).perView;
+  if (!title) return null;
+  return (
+    <div className="modal-scrim" onClick={closePanel}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <b>{title}</b>
+          <button className="modal-x" aria-label="Close" onClick={closePanel}>
+            ✕
+          </button>
+        </div>
+        <div className="modal-body">
+          <CountedAttributes
+            lab={v.lab(3)}
+            valid={Math.min(cap.valid, 24)}
+            invalid={0}
+            appId={v.app.id}
+            showPII={v.showPII}
+            role={v.role}
+            variant="form"
+          />
+        </div>
+        <div className="modal-foot">
+          <button className="tbtn" onClick={closePanel}>
+            Cancel
+          </button>
+          <button className="tbtn primary" onClick={closePanel}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ══════════════ dispatch ══════════════ */
 const BY_ID: Record<string, FC<{ app: AppDef }>> = {

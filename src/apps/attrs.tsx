@@ -132,18 +132,16 @@ function FieldControl({ item }: { item: Item }) {
 }
 
 function buildItems(base: number, valid: number, showPII: boolean, appId: string): Item[] {
-  const fields = schemaFor(appId).fields;
+  // Exclude the shared case-reference Id from the repeating fields — it is a
+  // page-level correlation key (rendered once as context), not a per-record value.
+  const fields = schemaFor(appId).fields.filter((f) => !f.shared);
   const out: Item[] = [];
   for (let k = 0; k < valid; k++) {
     const fdef = fields[k % fields.length];
     const i = 2000 + k;
     const stable = STABLE_FILLED.has(fdef.label);
     const filled = showPII && (stable || (k + base) % 2 === 0);
-    const value = fdef.shared
-      ? commonIdValue(appId, k)
-      : filled
-        ? genValue(fdef.kind, base + i)
-        : "";
+    const value = filled ? genValue(fdef.kind, base + i) : "";
     out.push({ label: fdef.label, value, id: elId(base, i, "f"), name: elName(base, i), kind: fdef.kind });
   }
   return out;
@@ -217,8 +215,10 @@ export function CountedAttributes({
   select?: boolean;
 }) {
   const items = buildItems(lab.base, valid, showPII, appId);
-  const fields = schemaFor(appId).fields;
-  const tableCols = fields.slice(0, 9);
+  const allFields = schemaFor(appId).fields;
+  const sharedField = allFields.find((f) => f.shared);
+  const sharedId = commonIdValue(appId, 0) || commonIdValue(appId, 1);
+  const tableCols = allFields.filter((f) => !f.shared).slice(0, 9);
   const tableRowCount = Math.max(1, Math.ceil(valid / tableCols.length));
   const tableSel = useSelection(tableRowCount);
   const [boardCols, setBoardCols] = useState<Record<string, number>>({});
@@ -268,11 +268,7 @@ export function CountedAttributes({
                     const k = r * tableCols.length + ci;
                     const stable = STABLE_FILLED.has(c.label);
                     const filled = showPII && (stable || (k + lab.base) % 2 === 0);
-                    const val = c.shared
-                      ? commonIdValue(appId, r)
-                      : filled
-                        ? genValue(c.kind, lab.base + 3000 + k)
-                        : "";
+                    const val = filled ? genValue(c.kind, lab.base + 3000 + k) : "";
                     const num = c.kind === "money" || c.kind === "percent" || c.kind === "count";
                     return (
                       <td key={ci} className={num ? "num" : ""}>
@@ -472,6 +468,12 @@ export function CountedAttributes({
 
   return (
     <form className="counted" onSubmit={(e) => e.preventDefault()}>
+      {sharedField && sharedId && (
+        <div className="ctx-id" title="Case reference — shared across applications">
+          <span className="kv-k">{sharedField.label}</span>
+          <span className="kv-v mono">{sharedId}</span>
+        </div>
+      )}
       {body}
       <InvalidZone count={invalid} />
     </form>

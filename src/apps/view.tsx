@@ -7,6 +7,7 @@ import { appRole } from "../lib/controls";
 import { schemaFor, type Schema } from "../lib/schemas";
 import { genValue } from "../lib/pii";
 import { multiPort, portalOrigin } from "../lib/ports";
+import { openPanel, closePanel } from "./panel";
 import type { AppDef } from "./registry";
 
 export function hashStr(s: string): number {
@@ -84,9 +85,13 @@ export function useView(app: AppDef): View {
     sec: (i) => wrap(schema.sections, i),
     act: (i) => wrap(schema.actions, i),
     fld: (i) => schema.fields[((i % schema.fields.length) + schema.fields.length) % schema.fields.length].label,
-    go: (label, i) => navigate(itemPath(app.id, "item", label, tick, i) + bizQuery(schema, tick + i)),
+    go: (label, i) => {
+      navigate(itemPath(app.id, "item", label, tick, i) + bizQuery(schema, tick + i));
+      openPanel(label); // opening a record/action shows a detail form
+    },
     goView: (label, i) => navigate(viewPath(app.id, label, tick, i) + bizQuery(schema, tick + i)),
     goHome: () => {
+      closePanel();
       if (multiPort()) window.location.href = portalOrigin();
       else navigate("/");
     },
