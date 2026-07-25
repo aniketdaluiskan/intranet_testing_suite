@@ -2311,7 +2311,7 @@ const RepoLayout: FC<{ app: AppDef }> = ({ app }) => {
       <header className="repo-top" style={{ background: v.accent }}>
         <Home v={v} light />
         <span className="repo-path">
-          {app.monogram.toLowerCase()} / <b>{v.sec(0).toLowerCase().replace(/\s+/g, "-")}</b>
+          acme / <b>{v.sec(0).toLowerCase().replace(/\s+/g, "-")}</b>
         </span>
         <EnvChip id={app.id} />
         <div className="repo-stats">
@@ -2394,7 +2394,7 @@ const RepoLayout: FC<{ app: AppDef }> = ({ app }) => {
           </table>
           <div className="readme">
             <div className="readme-h">📖 README.md</div>
-            <h3>{v.sec(0)}</h3>
+            <h3>{genValue("text", v.tick)}</h3>
             <p>{genValue("desc", v.tick)}</p>
           </div>
           <label className="fc chk repo-draft">
@@ -2466,15 +2466,18 @@ const CiLayout: FC<{ app: AppDef }> = ({ app }) => {
                     <span className={`wx wx-${weather[i % 3]}`} />
                   </td>
                   <td>
-                    <button className="jlink" onClick={() => v.goView(v.sec(i), i)}>
-                      {v.sec(i)}
+                    <button
+                      className="jlink"
+                      onClick={() => v.goView(genValue("text", v.lab(2).base + i), i)}
+                    >
+                      {genValue("text", v.lab(2).base + i).toLowerCase().replace(/\s+/g, "-")}
                     </button>
                   </td>
                   <td>{pii("date", v.lab(2).base + i)}</td>
                   <td>{i % 3 === 1 ? pii("date", v.lab(2).base + i * 3) : "N/A"}</td>
                   <td>{((v.tick + i * 7) % 55) + 1} min</td>
                   <td>
-                    <button className="jrun" title="Build now" onClick={() => v.go("Run " + v.sec(i), i)}>
+                    <button className="jrun" title="Build now" onClick={() => v.go("Build Now", i)}>
                       ▶
                     </button>
                   </td>

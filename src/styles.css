@@ -844,10 +844,11 @@ fieldset.radios legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
 .repo-files thead th { color: var(--muted); font-weight: 600; }
 .repo-files tbody tr:hover { background: #fafbfc; } .repo-files tr.sel { background: #eef6ff; }
 .repo-fbtn { background: none; border: none; color: var(--accent); font-family: ui-monospace, monospace; font-size: 12px; padding: 0; }
-.repo-draft { margin: 8px 0 14px; }
+.repo-draft { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; margin: 8px 0 14px; white-space: nowrap; }
 
 /* ── CI enrich ── */
 .ci-params { display: flex; flex-direction: column; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+.ci-params .fc.chk { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; align-self: flex-start; }
 .ci-params .fc.chk input { accent-color: var(--accent); }
 
 /* generic chk accent + focus polish across new tables */
