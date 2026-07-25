@@ -808,9 +808,10 @@ function RibbonEditor({ app, kind }: { app: AppDef; kind: "word" | "slides" | "w
           <Avatar seed={v.lab(2).base + 9} />
         </div>
       </header>
-      <MenuBar v={v} />
-      <Tabs v={v} labels={tabs} active={tab} onPick={setTab} />
-      <ToolbarButtons v={v} n={10} />
+      {app.id !== "notion" && <MenuBar v={v} />}
+      {app.id !== "notion" && <Tabs v={v} labels={tabs} active={tab} onPick={setTab} />}
+      {app.id !== "notion" && <ToolbarButtons v={v} n={10} />}
+      {app.id !== "notion" && (
       <div className="ed-extra">
         <label>
           Font
@@ -843,6 +844,7 @@ function RibbonEditor({ app, kind }: { app: AppDef; kind: "word" | "slides" | "w
         <FilterToggle label="Track Changes" />
         <FilterToggle label="Show comments" defaultOn />
       </div>
+      )}
       <div className="ed-body">
         {kind === "slides" && (
           <aside className="slide-rail">
@@ -1048,8 +1050,19 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
   const [active, setActive] = useActive(0);
   const [navTab, setNavTab] = useActive(0);
   const [related, setRelated] = useActive(0);
-  const navTabs = ["All", "Favorites", "History"];
   const relatedLists = ["Activity", "Related Records", "Affected CIs", "Approvers", "Attachments"];
+  const base = v.lab(1).base;
+  const SKIN: Record<
+    string,
+    { newLabel: string; tabs: string[]; conditions: boolean; hero?: "oncall" | "fiori" | "okta" | "zendesk" }
+  > = {
+    servicenow: { newLabel: "New", tabs: ["☰", "★", "🕘"], conditions: true },
+    zendesk: { newLabel: "Add", tabs: ["Views", "Search", "Admin"], conditions: false, hero: "zendesk" },
+    pagerduty: { newLabel: "New Incident", tabs: ["Incidents", "Services", "On-Call"], conditions: true, hero: "oncall" },
+    sap: { newLabel: "Create", tabs: ["Home", "Apps", "Recents"], conditions: false, hero: "fiori" },
+    okta: { newLabel: "Add Person", tabs: ["Dashboard", "Directory", "Apps"], conditions: false, hero: "okta" },
+  };
+  const skin = SKIN[app.id] ?? SKIN.servicenow;
   return (
     <div className="app snow" style={accentVar(v.accent)}>
       <header className="snow-top" style={{ background: v.accent }}>
@@ -1067,13 +1080,13 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
       <div className="fr-body">
         <nav className="snow-nav">
           <div className="snow-nav-tabs">
-            {navTabs.map((t, i) => (
+            {skin.tabs.map((t, i) => (
               <button
                 key={t}
                 className={"snow-nav-tab" + (i === navTab ? " on" : "")}
                 onClick={() => setNavTab(i)}
               >
-                {t === "All" ? "☰" : t === "Favorites" ? "★" : "🕘"}
+                {t}
               </button>
             ))}
           </div>
@@ -1096,11 +1109,57 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
           <div className="crumb">
             {app.name} › {v.sec(active)}
           </div>
+          {skin.hero === "oncall" && (
+            <div className="pd-oncall">
+              <span className="pd-dot" /> On-call now: <b>{pii("name", base + 2)}</b> · Escalation policy{" "}
+              {v.sec(1)}
+              <StatusPill text="Triggered" />
+            </div>
+          )}
+          {skin.hero === "fiori" && (
+            <div className="fiori-tiles">
+              {Array.from({ length: 6 }, (_, i) => (
+                <button key={i} className="fiori-tile" onClick={() => v.goView(v.sec(i), i)}>
+                  <span className="fiori-ic" style={{ background: v.accent }}>
+                    {v.sec(i).slice(0, 2)}
+                  </span>
+                  <span className="fiori-nm">{v.sec(i)}</span>
+                  <span className="fiori-ct">{(base + i * 13) % 90}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {skin.hero === "okta" && (
+            <Kpis
+              items={[
+                { label: "Users", value: String(200 + (v.tick % 800)) },
+                { label: "Applications", value: String(20 + (v.tick % 60)) },
+                { label: "Groups", value: String(10 + (v.tick % 40)) },
+                { label: "MFA Enrolled", value: 70 + (v.tick % 30) + "%", tone: "ok" },
+              ]}
+            />
+          )}
+          {skin.hero === "zendesk" && (
+            <div className="zd-views">
+              {(
+                [
+                  ["Open", "go"],
+                  ["Pending", "warn"],
+                  ["Solved", "ok"],
+                  ["Unassigned", "bad"],
+                ] as const
+              ).map(([n, t], i) => (
+                <div key={n} className={"zd-view zd-" + t}>
+                  <b>{(base + i * 7) % 60}</b> {n}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="snow-listtitle">
             <b>{v.sec(active)}</b>
             <div className="snow-list-actions">
-              <button className="tbtn primary" onClick={() => v.go(v.act(0), 0)}>
-                New
+              <button className="tbtn primary" onClick={() => v.go(skin.newLabel, 0)}>
+                {skin.newLabel}
               </button>
               <input className="snow-search" placeholder="Search" aria-label="Search" />
               <button className="tbtn" onClick={() => v.go("Search", 1)}>
@@ -1108,6 +1167,7 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
               </button>
             </div>
           </div>
+          {skin.conditions && (
           <div className="filter-bar snow-conditions">
             <label>
               State
@@ -1141,6 +1201,7 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
             </label>
             <ToolbarButtons v={v} n={3} />
           </div>
+          )}
           <div className="list-head">
             {v.sec(active)} · showing {cap.valid} records
           </div>
@@ -1372,16 +1433,25 @@ const PayrollLayout: FC<{ app: AppDef }> = ({ app }) => {
             {app.name} › {v.sec(active)}
           </div>
           <Kpis
-            items={[
-              { label: "Gross Pay", value: pii("amount", base + 1) },
-              { label: "Net Pay", value: pii("amount", base + 2), tone: "ok" },
-              { label: "Tax Withheld", value: pii("amount", base + 3), tone: "warn" },
-              { label: "Headcount", value: String(120 + (v.tick % 40)) },
-            ]}
+            items={
+              app.id === "concur"
+                ? [
+                    { label: "Report Total", value: pii("amount", base + 1) },
+                    { label: "Approved", value: pii("amount", base + 2), tone: "ok" },
+                    { label: "Out-of-Pocket", value: pii("amount", base + 3), tone: "warn" },
+                    { label: "Line Items", value: String(4 + (v.tick % 20)) },
+                  ]
+                : [
+                    { label: "Gross Pay", value: pii("amount", base + 1) },
+                    { label: "Net Pay", value: pii("amount", base + 2), tone: "ok" },
+                    { label: "Tax Withheld", value: pii("amount", base + 3), tone: "warn" },
+                    { label: "Headcount", value: String(120 + (v.tick % 40)) },
+                  ]
+            }
           />
           <div className="pay-run">
             <div className="list-head">
-              Pay run — {v.sec(active)}
+              {app.id === "concur" ? "Expense report" : "Pay run"} — {v.sec(active)}
               <span className="pay-run-status">
                 <StatusPill text={genValue("status", v.tick)} />
               </span>
@@ -1520,9 +1590,12 @@ const SharePointLayout: FC<{ app: AppDef }> = ({ app }) => {
         <span className="sp-sitelogo" style={{ background: v.accent }}>
           {app.monogram}
         </span>
-        <b>{v.sec(0)} Team Site</b>
-        <button className="sp-follow" onClick={() => v.goView("Following", 93)}>
-          ☆ Follow
+        <b>{app.id === "drive" ? "My Drive" : `${v.sec(0)} Team Site`}</b>
+        <button
+          className="sp-follow"
+          onClick={() => v.go(app.id === "drive" ? "New folder" : "Following", 93)}
+        >
+          {app.id === "drive" ? "＋ New" : "☆ Follow"}
         </button>
       </div>
       <div className="fr-body">
@@ -1616,6 +1689,12 @@ const HRMSLayout: FC<{ app: AppDef }> = ({ app }) => {
           <div className="crumb">
             {app.name} › {v.sec(active)}
           </div>
+          {app.id === "workday" && (
+            <div className="wd-inbox">
+              <b>Awaiting your action</b> · {(v.tick % 6) + 1} approvals · {(v.tick % 4) + 1} tasks ·{" "}
+              {(v.tick % 3) + 1} time-off requests
+            </div>
+          )}
           <div className="people">
             {Array.from({ length: 8 }, (_, i) => {
               const nm = pii("name", base + i * 3);
@@ -2032,9 +2111,15 @@ const BoardLayout: FC<{ app: AppDef }> = ({ app }) => {
       <AppTopBar v={v} search="Search issues" />
       <div className="board-head">
         <div className="board-head-left">
-          <b>{v.sec(0)} Sprint {(v.tick % 30) + 1}</b>
+          <b>
+            {app.id === "asana"
+              ? `${v.sec(0)} · My Tasks`
+              : `${v.sec(0)} Sprint ${(v.tick % 30) + 1}`}
+          </b>
           <span className="board-sprint-meta">
-            {(v.tick % 10) + 2} days remaining · {cap.valid} issues
+            {app.id === "asana"
+              ? `${cap.valid} tasks · due this week`
+              : `${(v.tick % 10) + 2} days remaining · ${cap.valid} issues`}
           </span>
         </div>
         <div className="board-avatars">
@@ -2042,9 +2127,18 @@ const BoardLayout: FC<{ app: AppDef }> = ({ app }) => {
             <Avatar key={i} seed={base + i * 4} />
           ))}
         </div>
-        <FilterToggle label="Only my issues" />
+        <FilterToggle label={app.id === "asana" ? "Only my tasks" : "Only my issues"} />
       </div>
-      <Tabs v={v} labels={["Board", "Backlog", "Sprints", "Reports"]} active={tab} onPick={setTab} />
+      <Tabs
+        v={v}
+        labels={
+          app.id === "asana"
+            ? ["List", "Board", "Timeline", "Calendar"]
+            : ["Board", "Backlog", "Sprints", "Reports"]
+        }
+        active={tab}
+        onPick={setTab}
+      />
       <div className="board-area">
         <CountedAttributes
           lab={v.lab(1)}
@@ -2217,7 +2311,16 @@ const RepoLayout: FC<{ app: AppDef }> = ({ app }) => {
           </button>
         </div>
       </header>
-      <Tabs v={v} labels={["Code", "Issues", "Pull requests", "Actions", "Wiki"]} active={tab} onPick={setTab} />
+      <Tabs
+        v={v}
+        labels={
+          app.id === "bitbucket"
+            ? ["Source", "Commits", "Branches", "Pull requests", "Pipelines"]
+            : ["Code", "Issues", "Pull requests", "Actions", "Wiki"]
+        }
+        active={tab}
+        onPick={setTab}
+      />
       <div className="fr-body">
         <main className="fr-main">
           <div className="repo-bar">

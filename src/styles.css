@@ -204,11 +204,17 @@ a { color: var(--accent); }
 
 /* invalid zone = non-value controls (control-type misID). Muted + dashed to
    flag that these SHOULD be dropped by a capture pipeline but bloat when misclassified. */
-.invalid-zone { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0 0; padding: 8px 0 0; border-top: 1px dashed var(--invalid); }
-.misid { font-size: 12px; color: var(--invalid); background: #fdeaea; border: 1px dashed var(--invalid); border-radius: 5px; padding: 2px 8px; }
+.invalid-zone { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 16px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); }
+.misid { font-size: 11.5px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; }
 button.misid { cursor: default; }
+.misid:hover { border-color: var(--muted); }
 .misid-tbl { display: inline-table; border-collapse: collapse; }
-.misid-tbl th { border: 1px dashed var(--invalid); padding: 2px 8px; font-size: 12px; color: var(--invalid); background: #fdeaea; }
+.misid-tbl th { border: 1px solid var(--line); padding: 3px 9px; font-size: 11.5px; color: var(--muted); background: transparent; }
+/* dark-theme (Grafana / Kibana) awareness */
+.flavor-grafana .invalid-zone { border-top-color: #262c36; }
+.flavor-grafana .misid, .flavor-grafana .misid-tbl th { color: #8a94a6; border-color: #333b47; }
+.flavor-grafana .legend-item { color: #d8dee9; }
+.flavor-grafana .dash-legend .legend-item input { accent-color: #d8dee9; }
 
 /* ══════════════ per-app layouts ══════════════ */
 .app { height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #f5f6f8; }
@@ -959,3 +965,22 @@ fieldset.radios legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
 .modal-body { padding: 16px 18px; overflow: auto; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px;
   border-top: 1px solid var(--line); background: #fafbfc; }
+
+/* ── ServiceNow-family distinct skins (Zendesk / PagerDuty / SAP / Okta) ── */
+.pd-oncall { display: flex; align-items: center; gap: 10px; background: #fbeaea; border: 1px solid #f3c2c2;
+  border-left: 4px solid #d64545; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12.5px; color: #7a2b2b; }
+.pd-dot { width: 9px; height: 9px; border-radius: 50%; background: #d64545; animation: pulse 1.4s infinite; flex: 0 0 auto; }
+.pd-oncall .pill { margin-left: auto; }
+.fiori-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.fiori-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; background: #fff; border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.05); text-align: left; }
+.fiori-ic { width: 32px; height: 32px; border-radius: 8px; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+.fiori-nm { font-size: 13px; font-weight: 600; } .fiori-ct { font-size: 22px; font-weight: 700; color: var(--accent); }
+.zd-views { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.zd-view { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font-size: 12.5px; border-top: 3px solid var(--muted); }
+.zd-view b { font-size: 18px; display: block; }
+.zd-go { border-top-color: #1d4ed8; } .zd-warn { border-top-color: #b45309; } .zd-ok { border-top-color: #1c7a43; } .zd-bad { border-top-color: #c0392b; }
+
+/* Workday inbox banner */
+.wd-inbox { background: color-mix(in srgb, var(--accent) 10%, #fff); border: 1px solid color-mix(in srgb, var(--accent) 30%, #fff);
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px; }

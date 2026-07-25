@@ -99,6 +99,25 @@ export function ControlOnly({ item }: { item: Item }) {
   }
 }
 
+/* ── spreadsheet cell control: text or dropdown only (a real grid cell is never a
+ * radio group, checkbox or calendar picker) ── */
+function CellControl({ item }: { item: Item }) {
+  const c = { id: item.id, name: item.name, "aria-label": item.label };
+  const opts = optionsFor(item.kind);
+  if (opts) {
+    return (
+      <select {...c} defaultValue={item.value}>
+        {opts.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return <input {...c} type="text" defaultValue={item.value} />;
+}
+
 /* ── a fully-labelled field group (label[for] / fieldset+legend / wrapped checkbox) ── */
 function FieldControl({ item }: { item: Item }) {
   const ctrl = controlFor(item.kind);
@@ -327,7 +346,7 @@ export function CountedAttributes({
                   </div>
                   <div className="chatmsg-text">
                     <span className="kv-k">{it.label}:</span>{" "}
-                    <span className="kv-v">{it.value || "…"}</span>
+                    <span className="kv-v">{it.value || genValue(it.kind, lab.base + i * 3 + 7)}</span>
                   </div>
                   {i % 5 === 0 && (
                     <div className="chatmsg-reacts">
@@ -371,7 +390,7 @@ export function CountedAttributes({
                   </th>
                   {row.map((it) => (
                     <td key={it.id}>
-                      <ControlOnly item={it} />
+                      <CellControl item={it} />
                     </td>
                   ))}
                   {row.length < COLS &&
