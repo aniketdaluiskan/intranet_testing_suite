@@ -935,3 +935,7 @@ fieldset.radios legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
   border-radius: 6px; padding: 4px 12px; font-size: 12px; }
 .huddle.denied .huddle-btn { border-color: #a12b2b; background: #fff; }
 .huddle-btn.leave { background: #ef4444; border-color: #ef4444; color: #fff; }
+
+/* explicit label→value pairs inside chat/board (non-editable, still captured) */
+.kv-k { font-weight: 700; color: var(--ink); }
+.kv-v { color: var(--ink); }

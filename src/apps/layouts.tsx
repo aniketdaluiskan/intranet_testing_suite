@@ -43,13 +43,22 @@ function EnvChip({ id }: { id: string }) {
 
 /** Real microphone access for huddles/calls (getUserMedia). */
 function useMic() {
-  const [state, setState] = useState<"idle" | "live" | "denied">("idle");
+  const [state, setState] = useState<"idle" | "starting" | "live" | "denied" | "unavailable">(
+    "idle",
+  );
   const [muted, setMuted] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const start = async () => {
-    if (state === "live") return;
+    if (state === "live" || state === "starting") return;
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    // getUserMedia only exists in a secure context (https or http://localhost).
+    if (!md || typeof md.getUserMedia !== "function") {
+      setState("unavailable");
+      return;
+    }
+    setState("starting");
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const s = await md.getUserMedia({ audio: true });
       streamRef.current = s;
       setMuted(false);
       setState("live");
@@ -75,6 +84,21 @@ function useMic() {
 /** Live huddle/meeting bar with mic level + mute/leave. */
 function HuddleBar({ mic, label }: { mic: ReturnType<typeof useMic>; label: string }) {
   if (mic.state === "idle") return null;
+  if (mic.state === "starting") {
+    return (
+      <div className="huddle live">
+        <span className="huddle-dot" /> Connecting to {label}… allow microphone access in the prompt.
+      </div>
+    );
+  }
+  if (mic.state === "unavailable") {
+    return (
+      <div className="huddle denied">
+        🎤 Microphone needs a secure context — open this over <b>https://</b> or{" "}
+        <b>http://localhost</b> (an http:// IP address will not work).
+      </div>
+    );
+  }
   if (mic.state === "denied") {
     return (
       <div className="huddle denied">

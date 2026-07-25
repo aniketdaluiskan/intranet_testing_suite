@@ -322,7 +322,6 @@ export function CountedAttributes({
             const initials = nm.split(" ").map((s) => s[0]).join("").slice(0, 2);
             const hh = String(((lab.base + i * 7) % 12) + 1).padStart(2, "0");
             const mm = String((lab.base + i * 13) % 60).padStart(2, "0");
-            const text = it.value ? `${it.label}: ${it.value}` : it.label;
             return (
               <div className={"chatmsg" + (me ? " me" : "")} key={it.id}>
                 <span className="avatar sm chat-av">{initials}</span>
@@ -330,7 +329,10 @@ export function CountedAttributes({
                   <div className="chatmsg-head">
                     <b>{me ? "You" : nm}</b> <span className="chatmsg-time">{hh}:{mm}</span>
                   </div>
-                  <div className="chatmsg-text">{text}</div>
+                  <div className="chatmsg-text">
+                    <span className="kv-k">{it.label}:</span>{" "}
+                    <span className="kv-v">{it.value || "…"}</span>
+                  </div>
                   {i % 5 === 0 && (
                     <div className="chatmsg-reacts">
                       <span>👍 {(i % 4) + 1}</span>
@@ -441,7 +443,9 @@ export function CountedAttributes({
                       draggable
                       onDragStart={(e) => e.dataTransfer.setData("text/plain", it.id)}
                     >
-                      <div className="bcard-summary">{it.value ? `${it.label}: ${it.value}` : it.label}</div>
+                      <div className="bcard-summary">
+                        <span className="kv-k">{it.label}:</span> {it.value || "—"}
+                      </div>
                       <div className="bcard-foot">
                         <span className={"btype t" + (i % 3)} title={["Story", "Bug", "Task"][i % 3]} />
                         <span className="bcard-key">
