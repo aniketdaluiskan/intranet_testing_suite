@@ -1,4 +1,4 @@
-import { useState, type FC, type ReactNode } from "react";
+import { useRef, useState, type FC, type ReactNode } from "react";
 import { accentVar, useActive, useSelection, useView, type View } from "./view";
 import { CountedAttributes, fieldItems, InvalidZone } from "./attrs";
 import { capacityOf, type AppDef } from "./registry";
@@ -38,6 +38,69 @@ function EnvChip({ id }: { id: string }) {
     <span className="app-url" title="Internal service address">
       🔒 {hostFor(id)}
     </span>
+  );
+}
+
+/** Real microphone access for huddles/calls (getUserMedia). */
+function useMic() {
+  const [state, setState] = useState<"idle" | "live" | "denied">("idle");
+  const [muted, setMuted] = useState(false);
+  const streamRef = useRef<MediaStream | null>(null);
+  const start = async () => {
+    if (state === "live") return;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = s;
+      setMuted(false);
+      setState("live");
+    } catch {
+      setState("denied");
+    }
+  };
+  const stop = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setState("idle");
+  };
+  const toggleMute = () => {
+    const s = streamRef.current;
+    if (!s) return;
+    const next = !muted;
+    s.getAudioTracks().forEach((t) => (t.enabled = !next));
+    setMuted(next);
+  };
+  return { state, muted, start, stop, toggleMute };
+}
+
+/** Live huddle/meeting bar with mic level + mute/leave. */
+function HuddleBar({ mic, label }: { mic: ReturnType<typeof useMic>; label: string }) {
+  if (mic.state === "idle") return null;
+  if (mic.state === "denied") {
+    return (
+      <div className="huddle denied">
+        🎤 Microphone blocked — allow mic access in your browser to join the {label}.
+        <button className="huddle-btn" onClick={mic.start}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="huddle live">
+      <span className="huddle-dot" /> {label} live
+      <span className={"mic-eq" + (mic.muted ? " off" : "")}>
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+      <button className="huddle-btn" onClick={mic.toggleMute}>
+        {mic.muted ? "🔇 Unmute" : "🎤 Mute"}
+      </button>
+      <button className="huddle-btn leave" onClick={mic.stop}>
+        Leave
+      </button>
+    </div>
   );
 }
 
@@ -421,6 +484,7 @@ const TeamsLayout: FC<{ app: AppDef }> = ({ app }) => {
   const v = useView(app);
   const cap = capacityOf(app).perView;
   const [ch, setCh] = useActive(0);
+  const mic = useMic();
   const rail = [
     { i: "◎", t: "Activity" },
     { i: "💬", t: "Chat" },
@@ -474,7 +538,11 @@ const TeamsLayout: FC<{ app: AppDef }> = ({ app }) => {
               </button>
             ))}
           </div>
+          <button className="teams-meet" onClick={mic.start} title="Meet — enables microphone">
+            📹 Meet
+          </button>
         </div>
+        <HuddleBar mic={mic} label="meeting" />
         <CountedAttributes
           lab={v.lab(1)}
           valid={cap.valid}
@@ -482,7 +550,7 @@ const TeamsLayout: FC<{ app: AppDef }> = ({ app }) => {
           appId={v.app.id}
           showPII={v.showPII}
           role={v.role}
-          variant="bubbles"
+          variant="chat"
         />
         <div className="teams-compose">
           <button className="compose-ic" title="Format">
@@ -507,6 +575,7 @@ const SlackLayout: FC<{ app: AppDef }> = ({ app }) => {
   const cap = capacityOf(app).perView;
   const [ch, setCh] = useActive(0);
   const base = v.lab(1).base;
+  const mic = useMic();
   const sidebarTop = ["Threads", "Mentions & reactions", "Drafts", "Saved items"];
   return (
     <div className="app slack" style={accentVar(v.accent)}>
@@ -564,8 +633,12 @@ const SlackLayout: FC<{ app: AppDef }> = ({ app }) => {
         <div className="slack-head">
           <b># {v.sec(ch).toLowerCase().replace(/\s+/g, "-")}</b>
           <span className="slack-topic">{genValue("text", base)}</span>
+          <button className="slack-huddle" onClick={mic.start} title="Start huddle — enables microphone">
+            🎧 Huddle
+          </button>
           <span className="slack-members">👤 {(v.tick % 40) + 3}</span>
         </div>
+        <HuddleBar mic={mic} label="huddle" />
         <div className="slack-msgs">
           <CountedAttributes
             lab={v.lab(1)}
@@ -574,7 +647,7 @@ const SlackLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="bubbles"
+            variant="chat"
           />
         </div>
         <div className="slack-compose-box">
@@ -648,7 +721,7 @@ const CopilotLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="bubbles"
+            variant="chat"
           />
           <div className="cp-prompt">
             <button className="cp-attach" title="Attach">
@@ -758,7 +831,7 @@ function RibbonEditor({ app, kind }: { app: AppDef; kind: "word" | "slides" | "w
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant={kind === "slides" ? "list" : "rows"}
+            variant="form"
           />
         </main>
         <aside className="props-pane">
@@ -1032,7 +1105,8 @@ const ServiceNowLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="rows"
+            variant="table"
+            select
           />
           <div className="snow-related">
             <div className="rel-tabs">
@@ -1126,7 +1200,7 @@ const CrmLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="props"
+            variant="form"
           />
         </main>
         <aside className="crm-activity">
@@ -1225,7 +1299,8 @@ const TestCaseLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="rows"
+            variant="table"
+            select
           />
         </main>
       </div>
@@ -1322,7 +1397,7 @@ const PayrollLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="rows"
+            variant="form"
           />
         </main>
       </div>
@@ -1372,7 +1447,7 @@ const InsuranceLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="props"
+            variant="form"
           />
           <div className="list-head">Claim timeline</div>
           <Timeline v={v} n={5} />
@@ -1460,7 +1535,7 @@ const SharePointLayout: FC<{ app: AppDef }> = ({ app }) => {
               })}
             </tbody>
           </table>
-          <div className="list-head">Library columns</div>
+          <div className="list-head">Document details</div>
           <CountedAttributes
             lab={v.lab(1)}
             valid={cap.valid}
@@ -1468,7 +1543,7 @@ const SharePointLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="rows"
+            variant="form"
           />
         </main>
       </div>
@@ -1529,7 +1604,7 @@ const HRMSLayout: FC<{ app: AppDef }> = ({ app }) => {
               appId={v.app.id}
               showPII={v.showPII}
               role={v.role}
-              variant="grid"
+              variant="form"
             />
           </div>
         </main>
@@ -1569,7 +1644,7 @@ const FormsLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="grid"
+            variant="form"
           />
           <label className="fc chk form-consent">
             <input type="checkbox" required /> I confirm the information provided is accurate and
@@ -1660,7 +1735,7 @@ const DocuSignLayout: FC<{ app: AppDef }> = ({ app }) => {
               appId={v.app.id}
               showPII={v.showPII}
               role={v.role}
-              variant="grid"
+              variant="form"
             />
             <label className="fc chk ds-consent">
               <input type="checkbox" required /> I agree to use electronic records and signatures.
@@ -1736,7 +1811,7 @@ const ZoomLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="grid"
+            variant="form"
           />
           <div className="zoom-opts">
             <label className="fc chk">
@@ -1890,7 +1965,7 @@ const AzureLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="props"
+            variant="form"
           />
         </main>
       </div>
@@ -2034,7 +2109,7 @@ const DashboardLayout: FC<{ app: AppDef }> = ({ app }) => {
               appId={v.app.id}
               showPII={v.showPII}
               role={v.role}
-              variant="rows"
+              variant="table"
             />
           </div>
         </div>
@@ -2157,7 +2232,7 @@ const RepoLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="rows"
+            variant="table"
           />
         </main>
       </div>
@@ -2255,7 +2330,7 @@ const CiLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="rows"
+            variant="form"
           />
         </main>
       </div>
@@ -2309,7 +2384,8 @@ const RecordsLayout: FC<{ app: AppDef }> = ({ app }) => {
             appId={v.app.id}
             showPII={v.showPII}
             role={v.role}
-            variant="rows"
+            variant="table"
+            select
           />
         </main>
       </div>

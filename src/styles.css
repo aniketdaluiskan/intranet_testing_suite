@@ -859,3 +859,79 @@ fieldset.radios legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
 .svc-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
   box-shadow: 0 0 0 2px rgba(34,197,94,.22); flex: 0 0 auto; }
 .svc-ip { color: #9aa3af; }
+
+/* ════════════════════ product-authentic data shapes ════════════════════ */
+/* record list grid (ServiceNow / records / dashboards / repo / test) */
+.rec-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.rec-grid { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.rec-grid thead th { position: sticky; top: 0; z-index: 1; background: #f5f7f9; text-align: left;
+  font-weight: 600; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.rec-grid td { padding: 7px 12px; border-bottom: 1px solid #eef1f4; white-space: nowrap; max-width: 240px;
+  overflow: hidden; text-overflow: ellipsis; }
+.rec-grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rec-grid tbody tr:hover { background: #f7fafd; }
+.rec-grid tbody tr.sel { background: #eef6ff; }
+.rec-grid .chk { width: 34px; text-align: center; }
+.rec-grid .chk input { accent-color: var(--accent); }
+
+/* sectioned record form (CRM / Insurance / HRMS / Azure / …) — no select boxes */
+.v-form { display: flex; flex-direction: column; gap: 14px; }
+.form-sec { border: 1px solid var(--line); border-radius: 10px; padding: 8px 16px 16px; margin: 0; background: #fff; }
+.form-sec > legend { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--accent); padding: 0 6px; }
+.form-sec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 20px; }
+
+/* chat message stream (Copilot / Teams / Slack) */
+.v-chat { display: flex; flex-direction: column; gap: 14px; }
+.chatmsg { display: flex; gap: 10px; align-items: flex-start; }
+.chat-av { flex: 0 0 auto; margin-top: 2px; }
+.chatmsg-body { min-width: 0; }
+.chatmsg-head { display: flex; align-items: baseline; gap: 8px; }
+.chatmsg-head b { font-size: 13px; }
+.chatmsg-time { font-size: 10.5px; color: var(--muted); }
+.chatmsg-text { font-size: 13.5px; line-height: 1.45; margin-top: 1px; }
+.chatmsg.me .chatmsg-head b { color: var(--accent); }
+.chatmsg-reacts { display: flex; gap: 6px; margin-top: 5px; }
+.chatmsg-reacts span { font-size: 11px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 1px 8px; }
+
+/* OneNote notes with occasional to-dos */
+.v-notes { list-style: none; margin: 0; padding: 0; }
+.note-line { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; }
+.note-todo { display: inline-flex; align-items: center; gap: 7px; }
+.note-todo input { accent-color: var(--accent); }
+.li-label.bullet::before { content: "•"; color: var(--accent); margin-right: 7px; }
+.v-notes .li-value { color: var(--muted); font-size: 12px; }
+
+/* real Jira/Asana issue card */
+.bcard-summary { font-size: 12.5px; line-height: 1.35; margin-bottom: 8px; }
+.bcard-foot { display: flex; align-items: center; gap: 8px; }
+.bcard-key { font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+.bcard-pts { margin-left: auto; background: var(--bg); border-radius: 10px; font-size: 10.5px;
+  padding: 1px 7px; color: var(--muted); font-weight: 700; }
+.bcard-foot .avatar.sm { width: 22px; height: 22px; font-size: 9px; }
+.btype { width: 14px; height: 14px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+.btype.t0 { background: #36b37e; } .btype.t1 { background: #e5493a; } .btype.t2 { background: #4b8bf5; }
+
+/* live huddle / meeting bar (real mic) */
+.teams-meet, .slack-huddle { border: none; border-radius: 6px; padding: 5px 12px; font-size: 12.5px;
+  background: color-mix(in srgb, var(--accent) 14%, #fff); color: var(--accent); font-weight: 600; }
+.teams-meet { margin-left: auto; } .teams-meet:hover, .slack-huddle:hover { filter: brightness(.97); }
+.huddle { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-size: 12.5px;
+  border-bottom: 1px solid var(--line); }
+.huddle.live { background: #0b3d2e; color: #d7f5e7; }
+.huddle.denied { background: #fdeaea; color: #a12b2b; }
+.huddle-dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; animation: pulse 1.4s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.mic-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 16px; }
+.mic-eq i { width: 3px; background: #34d399; border-radius: 2px; animation: eq .9s ease-in-out infinite; }
+.mic-eq i:nth-child(1) { height: 6px; animation-delay: 0s; }
+.mic-eq i:nth-child(2) { height: 12px; animation-delay: .15s; }
+.mic-eq i:nth-child(3) { height: 8px; animation-delay: .3s; }
+.mic-eq i:nth-child(4) { height: 14px; animation-delay: .45s; }
+.mic-eq.off i { animation: none; height: 3px; opacity: .5; }
+@keyframes eq { 0%,100% { transform: scaleY(.4); } 50% { transform: scaleY(1); } }
+.huddle-btn { border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.12); color: inherit;
+  border-radius: 6px; padding: 4px 12px; font-size: 12px; }
+.huddle.denied .huddle-btn { border-color: #a12b2b; background: #fff; }
+.huddle-btn.leave { background: #ef4444; border-color: #ef4444; color: #fff; }
