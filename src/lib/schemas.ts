@@ -468,7 +468,7 @@ export function sessionCaseId(): string {
 }
 /** A per-app, per-session Id for apps that don't carry the shared session Id. */
 function _altCaseId(appId: string): string {
-  return "CS-" + (100000 + ((_sidBase() ^ _hash(appId)) % 900000));
+  return "CS-" + (100000 + (((_sidBase() ^ _hash(appId)) >>> 0) % 900000));
 }
 
 export function commonIdValue(appId: string, i: number): string {
