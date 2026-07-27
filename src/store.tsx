@@ -12,7 +12,9 @@ import { applySessionMeta, getSessionId } from "./session";
 
 /**
  * Global app state: the session tag and the "churn" controls that make labels /
- * PII keep moving. The churn tick is derived from two sources:
+ * PII keep moving. The churn tick is derived from three sources:
+ *   - a per-load seed from the session id, so every fresh page load / new Session
+ *     tag starts a different label + value stream (see loadSeed below),
  *   - the router's location.key (bumped on every navigation), and
  *   - timerGen: an optional idle timer that also rotates while idle.
  * The 40% stable schema labels and the shared session Id are seeded independently
@@ -45,11 +47,23 @@ export function useStore(): Store {
   return s;
 }
 
-/** Combined churn tick: navigation key + idle-timer generation. */
+/** Per-page-load seed so every fresh run starts a NEW label/value stream. Derived from the session
+ * id (a random UUID generated on each load, shown as the Session tag) -> random by default, but
+ * still a reproducibility handle: set the same Session tag to reproduce the same stream. Constant
+ * during a run (only changes on reload or an explicit Session-tag change), so it never disturbs the
+ * mark-and-rescan sweeps — navigation-driven churn works exactly as before, just offset. */
+function loadSeed(): number {
+  const s = getSessionId();
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/** Combined churn tick: per-load session seed + navigation key + idle-timer generation. */
 export function useChurnTick(): number {
   const { key } = useLocation();
   const { timerGen } = useStore();
-  return (key + timerGen) >>> 0;
+  return (key + timerGen + loadSeed()) >>> 0;
 }
 
 export function AppStore({ children }: { children: ReactNode }) {
