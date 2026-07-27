@@ -111,7 +111,11 @@ function discoverApps(): string[] {
 const WORDS = [
   "Verified", "Confirmed", "Active", "Pending", "Approved", "Standard", "Primary", "Regional", "Quarterly", "Corporate",
 ];
-let seedCtr = 1;
+// Paired with WORDS so a text field gets a realistic two-word entry (e.g. "Regional Vendor") rather
+// than an artificial unique-suffix token — a typed field value has no functional need to be unique.
+const NOUNS = [
+  "Invoice", "Vendor", "Account", "Review", "Report", "Request", "Record", "Summary", "Ledger", "Statement",
+];
 const rnd = (n: number) => Math.floor(Math.random() * n);
 function valueForInput(el: HTMLInputElement | HTMLTextAreaElement): string {
   const type =
@@ -127,7 +131,7 @@ function valueForInput(el: HTMLInputElement | HTMLTextAreaElement): string {
     case "date":
       return `${2020 + rnd(6)}-${String(1 + rnd(12)).padStart(2, "0")}-${String(1 + rnd(28)).padStart(2, "0")}`;
     default:
-      return `${WORDS[rnd(WORDS.length)]}-${(seedCtr++).toString(36)}`;
+      return `${WORDS[rnd(WORDS.length)]} ${NOUNS[rnd(NOUNS.length)]}`;
   }
 }
 
@@ -323,16 +327,61 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
   // No fixed cap — stop this app only when it STALLS (no action for 5 min) or clearly LOOPS.
   const stop = () => Date.now() - lastAction > INACTIVITY_MS || revisit > MAX_REVISITS;
 
-  // Phase 1 — click every non-interactive leaf (labels, text, cells, icons).
+  // MODAL-FIRST: ANY interaction can open a dialog -- even a phase-1 leaf click that bubbles up to a
+  // card/button. Whenever one is open we interact ONLY inside it (type its fields, set its controls,
+  // click its body), then CLOSE it, THEN resume the page. serviceModal() does one such step and
+  // returns true while a dialog is open; every page phase calls it FIRST so the background is never
+  // touched while a dialog is up.
+  let dialogFilled = false;
+  const serviceModal = async (): Promise<boolean> => {
+    const modal = openModal();
+    if (!modal) return false;
+    if (!dialogFilled) {
+      setStatus(`${appId} · dialog`);
+      await typeTextboxes(modal, onAction, stop);
+      await setControls(modal, onAction, stop);
+      dialogFilled = true;
+    }
+    const el = nextUnswept(modal, CLOSE_EXCLUDE); // dialog body; close/confirm held back until last
+    if (el) {
+      await clickEl(el);
+      onAction();
+      await tick();
+      return true;
+    }
+    // Dialog exhausted -> close it, THEN resume the page.
+    setStatus(`${appId} · closing dialog`);
+    const closer =
+      modal.querySelector<HTMLElement>(".modal-foot .tbtn.primary") ||
+      modal.querySelector<HTMLElement>(".modal-foot .tbtn") ||
+      document.querySelector<HTMLElement>(".modal-x");
+    if (closer) {
+      closer.setAttribute("data-swept", "1");
+      await clickEl(closer);
+    }
+    await tick(200);
+    if (openModal()) closePanel();
+    dialogFilled = false;
+    onAction();
+    await tick();
+    return true;
+  };
+
+  // Phase 1 — click every non-interactive leaf (labels, text, cells, icons); modal-first.
   setStatus(`${appId} · text & labels`);
   while (!stop()) {
     await gate();
+    if (await serviceModal()) continue; // a leaf click may have opened a dialog -> handle it first
     const el = nextUnswept(document.body, "", true);
     if (!el) break;
     await clickEl(el);
     onAction();
     trackNav();
     await tick();
+  }
+  // Close out any dialog still open before the field phases (which aren't per-field modal-scoped).
+  while (!stop() && (await serviceModal())) {
+    /* drain lingering dialog */
   }
   // Phase 2 — click + type each textbox, one by one.
   setStatus(`${appId} · typing fields`);
@@ -341,45 +390,11 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
   setStatus(`${appId} · controls`);
   await setControls(document, onAction, stop);
 
-  // Phase 4 — sweep whatever is still pending (buttons, links, tabs, churn-revealed), modal-aware.
+  // Phase 4 — sweep whatever is still pending (buttons, links, tabs, churn-revealed); modal-first.
   setStatus(`${appId} · sweep`);
-  let dialogFilled = false;
   while (!stop()) {
     await gate();
-    const modal = openModal();
-    if (modal) {
-      // A dialog is open — interact ONLY inside it (same 4-phase spirit: type its fields, set its
-      // controls, click its body), holding its close/confirm controls back until last.
-      if (!dialogFilled) {
-        setStatus(`${appId} · dialog`);
-        await typeTextboxes(modal, onAction, stop);
-        await setControls(modal, onAction, stop);
-        dialogFilled = true;
-      }
-      const el = nextUnswept(modal, CLOSE_EXCLUDE);
-      if (el) {
-        await clickEl(el);
-        onAction();
-        await tick();
-        continue;
-      }
-      // Dialog exhausted -> close it, THEN resume the page.
-      setStatus(`${appId} · closing dialog`);
-      const closer =
-        modal.querySelector<HTMLElement>(".modal-foot .tbtn.primary") ||
-        modal.querySelector<HTMLElement>(".modal-foot .tbtn") ||
-        document.querySelector<HTMLElement>(".modal-x");
-      if (closer) {
-        closer.setAttribute("data-swept", "1");
-        await clickEl(closer);
-      }
-      await tick(200);
-      if (openModal()) closePanel();
-      dialogFilled = false;
-      onAction();
-      await tick();
-      continue;
-    }
+    if (await serviceModal()) continue;
     const el = nextUnswept(document.body, "");
     if (!el) break;
     await clickEl(el);
