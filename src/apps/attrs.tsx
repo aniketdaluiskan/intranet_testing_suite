@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { type Labeler } from "../lib/labeler";
+import { fieldLabel, type Labeler } from "../lib/labeler";
 import { elId, elName, uid } from "../lib/ids";
 import { genValue, controlFor, optionsFor, type ValueKind } from "../lib/pii";
 import { pii } from "../lib/pii";
@@ -150,18 +150,35 @@ function FieldControl({ item }: { item: Item }) {
   );
 }
 
-function buildItems(base: number, valid: number, showPII: boolean, appId: string): Item[] {
-  // Exclude the shared case-reference Id from the repeating fields — it is a
-  // page-level correlation key (rendered once as context), not a per-record value.
+// Value kinds assigned to freshly-generated (60%) labels so their values stay typed and varied.
+const GEN_KINDS: ValueKind[] = [
+  "text", "money", "status", "date", "name", "count", "priority", "email", "department", "percent", "code", "bool",
+];
+
+/**
+ * Per-slot label + value-kind. ~40% of slots reuse a STABLE real schema label (deterministic per
+ * slot -> recurs identically across every render), the other ~60% get a FRESHLY GENERATED English
+ * label seeded from the churn base -> a new label on every navigation/click. The shared
+ * case-reference Id is never a slot here -- it is rendered once as page context (see the
+ * ``ctx-id`` chip), with a session-stable value from ``commonIdValue``.
+ */
+function slotField(appId: string, k: number, base: number): { label: string; kind: ValueKind } {
   const fields = schemaFor(appId).fields.filter((f) => !f.shared);
+  if (k % 5 < 2) {
+    const f = fields[k % fields.length];
+    return { label: f.label, kind: f.kind }; // 40% -- stable, recurring business label
+  }
+  return { label: fieldLabel(base + k * 3 + 1), kind: GEN_KINDS[k % GEN_KINDS.length] }; // 60% -- generated
+}
+
+function buildItems(base: number, valid: number, showPII: boolean, appId: string): Item[] {
   const out: Item[] = [];
   for (let k = 0; k < valid; k++) {
-    const fdef = fields[k % fields.length];
+    const { label, kind } = slotField(appId, k, base);
     const i = 2000 + k;
-    const stable = STABLE_FILLED.has(fdef.label);
-    const filled = showPII && (stable || (k + base) % 2 === 0);
-    const value = filled ? genValue(fdef.kind, base + i) : "";
-    out.push({ label: fdef.label, value, id: elId(base, i, "f"), name: elName(base, i), kind: fdef.kind });
+    const filled = showPII && (STABLE_FILLED.has(label) || (k + base) % 2 === 0);
+    const value = filled ? genValue(kind, base + i) : ""; // values always regenerate with the churn base
+    out.push({ label, value, id: elId(base, i, "f"), name: elName(base, i), kind });
   }
   return out;
 }
@@ -237,7 +254,8 @@ export function CountedAttributes({
   const allFields = schemaFor(appId).fields;
   const sharedField = allFields.find((f) => f.shared);
   const sharedId = commonIdValue(appId, 0) || commonIdValue(appId, 1);
-  const tableCols = allFields.filter((f) => !f.shared).slice(0, 9);
+  // Same 40%-stable / 60%-generated rule for record-grid column headers.
+  const tableCols = Array.from({ length: 9 }, (_, c) => slotField(appId, c, lab.base));
   const tableRowCount = Math.max(1, Math.ceil(valid / tableCols.length));
   const tableSel = useSelection(tableRowCount);
   const [boardCols, setBoardCols] = useState<Record<string, number>>({});
@@ -263,8 +281,8 @@ export function CountedAttributes({
                     />
                   </th>
                 )}
-                {tableCols.map((c) => (
-                  <th key={c.label} scope="col">
+                {tableCols.map((c, ci) => (
+                  <th key={ci} scope="col">
                     {c.label}
                   </th>
                 ))}

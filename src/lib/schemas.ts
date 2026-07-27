@@ -1,5 +1,6 @@
 import type { ValueKind } from "./pii";
 import { appRole } from "./controls";
+import { getSessionId } from "../session";
 
 /**
  * Real business field schemas per app. Captured attributes are these meaningful
@@ -449,10 +450,37 @@ const CHROME_FIELDS: Field[] = [
 const COMMON_ID: Field = { label: "Id", kind: "code", shared: true };
 export const SHARED_IDS = ["CS-100047", "CS-100048"];
 
+function _hash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+function _sidBase(): number {
+  return _hash(getSessionId());
+}
+/**
+ * The shared case Id for the CURRENT session. Derived from the session id (set on the portal's
+ * Session tag, and freshly generated on every page load), so it stays identical across the whole
+ * session and changes to a new unique value only when the session changes / the page is refreshed.
+ */
+export function sessionCaseId(): string {
+  return "CS-" + (100000 + (_sidBase() % 900000));
+}
+/** A per-app, per-session Id for apps that don't carry the shared session Id. */
+function _altCaseId(appId: string): string {
+  return "CS-" + (100000 + ((_sidBase() ^ _hash(appId)) % 900000));
+}
+
 export function commonIdValue(appId: string, i: number): string {
-  if (appRole(appId) === "noise") return i % 3 === 0 ? "" : SHARED_IDS[1]; // noise: own id, some blank
-  if (i % 7 === 6) return ""; // occasionally blank elsewhere
-  return SHARED_IDS[0]; // shared across process + extra apps → stitchable
+  if (i % 7 === 6) return ""; // an occasional blank Id row anywhere
+  const role = appRole(appId);
+  // Every PROCESS app shares the same session Id (case-stitchable across the connected process).
+  if (role === "process") return sessionCaseId();
+  // Non-process (extra / noise): only a RANDOM FEW carry the shared session Id; the rest get their
+  // own per-session Id (or an occasional blank for noise apps).
+  if (_hash(appId) % 3 === 0) return sessionCaseId();
+  if (role === "noise" && i % 3 === 0) return "";
+  return _altCaseId(appId);
 }
 
 export function schemaFor(appId: string): Schema {
