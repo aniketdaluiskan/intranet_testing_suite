@@ -1,5 +1,6 @@
 import { navigate } from "./router";
 import { APPS } from "./apps/registry";
+import { closePanel } from "./apps/panel";
 
 /**
  * In-page autopilot. FLOW mirrors the e2e sweep
@@ -8,7 +9,7 @@ import { APPS } from "./apps/registry";
  * every visible field, click EVERY leaf + interactive element (marking + re-scan so
  * churn-revealed elements are covered), and click the Home button LAST — then move
  * to the next app. MECHANISM mirrors SDA_v3's fill engine: per-field typed values
- * dispatched with real input/change/click events on speed-profile delays, plus a
+ * dispatched with real input/change/click events at a fixed 3-interactions/sec cadence, plus a
  * live progress %. Events are in-page synthetic (isTrusted=false); the trusted
  * variant is driver/autopilot_driver.py.
  *
@@ -18,10 +19,16 @@ import { APPS } from "./apps/registry";
 
 export type ApState = "idle" | "running" | "paused";
 
-// SDA-style speed profile (ms). type = per-field settle, click = between clicks.
-const D = { type: 14, click: 90, between: 60 };
+// Interaction pace: 3 element interactions per second -> one every ~333 ms. A single cadence spaces
+// every discrete action (field fill, select, checkbox/radio, element click). Dial RATE_PER_SEC to
+// change speed; STEP_MS is the derived delay used everywhere below.
+const RATE_PER_SEC = 3;
+const STEP_MS = Math.round(1000 / RATE_PER_SEC); // ~333 ms
+const D = { type: STEP_MS, click: STEP_MS, between: STEP_MS };
 const PER_APP_CLICK_BUDGET = 160;
-const PER_APP_TIME_MS = 45_000;
+// 160 clicks at 3/sec take ~53 s on their own; give the per-app timer headroom so the element
+// budget (not the clock) stays the binding limit and every app still gets fully swept.
+const PER_APP_TIME_MS = 90_000;
 
 // Mirrors the sweep's exclusions: never touch the autopilot bar or the portal's
 // meta-controls; the Home button and tile side-links are driven deliberately, not
@@ -145,9 +152,9 @@ function realClick(el: HTMLElement): void {
 }
 
 /* ── SDA-style field fill: typed values + input/change events + delays ── */
-async function fillFields(): Promise<void> {
+async function fillFields(root: ParentNode): Promise<void> {
   const inputs = Array.from(
-    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+    root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
       'input[type="text"], input[type="email"], input[type="tel"], input[type="number"], ' +
         'input[type="search"], input[type="date"], input:not([type]), textarea',
     ),
@@ -171,7 +178,7 @@ async function fillFields(): Promise<void> {
     }
     await tick(D.type);
   }
-  for (const sel of Array.from(document.querySelectorAll<HTMLSelectElement>("select"))) {
+  for (const sel of Array.from(root.querySelectorAll<HTMLSelectElement>("select"))) {
     await gate();
     if (!visible(sel) || sel.closest(EXCLUDE)) continue;
     try {
@@ -185,23 +192,27 @@ async function fillFields(): Promise<void> {
     }
     await tick();
   }
-  for (const cb of Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
+  for (const cb of Array.from(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
     await gate();
     if (!visible(cb) || cb.closest(EXCLUDE)) continue;
     try {
-      if (!cb.checked) cb.click();
+      if (!cb.checked) {
+        cb.click();
+        await tick();
+      }
     } catch {
       /* ignore */
     }
   }
   const groups: Record<string, HTMLInputElement[]> = {};
-  document.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((r) => {
+  root.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((r) => {
     if (r.name && visible(r) && !r.closest(EXCLUDE)) (groups[r.name] ||= []).push(r);
   });
   for (const grp of Object.values(groups)) {
     await gate();
     try {
       grp[rnd(grp.length)].click();
+      await tick();
     } catch {
       /* ignore */
     }
@@ -219,13 +230,15 @@ function interactive(e: HTMLElement): boolean {
   return e.hasAttribute("role") || e.hasAttribute("tabindex") || e.getAttribute("draggable") === "true" || e.isContentEditable;
 }
 
-/** Next un-swept leaf + interactive element (mirrors the Python _MARK_NEXT_UNSWEPT_JS). */
-function nextUnswept(): HTMLElement | null {
-  if (!document.body) return null;
-  for (const e of Array.from(document.body.querySelectorAll<HTMLElement>("*"))) {
+/** Next un-swept leaf + interactive element within ``root`` (mirrors the Python
+ * _MARK_NEXT_UNSWEPT_JS). ``extra`` is an extra exclusion selector — used to hold a dialog's
+ * close/confirm controls back until the rest of the dialog has been interacted with. */
+function nextUnswept(root: ParentNode, extra: string): HTMLElement | null {
+  for (const e of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
     if (e.hasAttribute("data-swept")) continue;
     if (SKIP_TAGS.has(e.tagName)) continue;
     if (e.closest(EXCLUDE)) continue;
+    if (extra && e.closest(extra)) continue;
     if (e.tagName === "INPUT" && SKIP_INPUT.has((e.getAttribute("type") || "").toLowerCase())) continue;
     if (e.children.length > 0 && !interactive(e)) continue; // skip pure wrapper containers
     if (!visible(e)) continue;
@@ -235,26 +248,78 @@ function nextUnswept(): HTMLElement | null {
   return null;
 }
 
+// An open dialog/popup (our ActionPanel, or any aria-modal dialog). While one is open the sweep
+// works ONLY inside it; its close/confirm controls are held back until everything else is done.
+const CLOSE_EXCLUDE = ".modal-x, .modal-foot .tbtn, .modal-foot button";
+function openModal(): HTMLElement | null {
+  return (
+    document.querySelector<HTMLElement>(".modal-scrim .modal") ||
+    document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')
+  );
+}
+async function clickEl(el: HTMLElement): Promise<void> {
+  try {
+    el.scrollIntoView({ block: "center", inline: "center" });
+    el.classList.add("ap-focus");
+    realClick(el);
+    el.classList.remove("ap-focus");
+  } catch {
+    /* ignore */
+  }
+}
+
 async function sweepApp(appId: string, appIdx: number, total: number): Promise<void> {
   const t0 = Date.now();
   setStatus(`${appId} · filling fields`);
-  await fillFields();
+  await fillFields(document);
   setStatus(`${appId} · clicking elements`);
   let clicks = 0;
-  while (clicks < PER_APP_CLICK_BUDGET && Date.now() - t0 < PER_APP_TIME_MS) {
-    await gate();
-    const el = nextUnswept();
-    if (!el) break;
-    try {
-      el.scrollIntoView({ block: "center", inline: "center" });
-      el.classList.add("ap-focus");
-      realClick(el);
-      el.classList.remove("ap-focus");
-    } catch {
-      /* ignore */
-    }
+  let dialogFilled = false;
+  const bump = () => {
     clicks++;
     setProgress(((appIdx + Math.min(1, clicks / PER_APP_CLICK_BUDGET)) / total) * 100);
+  };
+
+  while (clicks < PER_APP_CLICK_BUDGET && Date.now() - t0 < PER_APP_TIME_MS) {
+    await gate();
+    const modal = openModal();
+
+    if (modal) {
+      // A dialog is open — interact ONLY inside it, never the background page.
+      if (!dialogFilled) {
+        setStatus(`${appId} · dialog`);
+        await fillFields(modal);
+        dialogFilled = true;
+      }
+      const el = nextUnswept(modal, CLOSE_EXCLUDE); // dialog body, close/confirm held back
+      if (el) {
+        await clickEl(el);
+        bump();
+        await tick(D.click);
+        continue;
+      }
+      // Dialog exhausted -> close it (click its confirm/cancel/✕), THEN resume the page.
+      setStatus(`${appId} · closing dialog`);
+      const closer =
+        modal.querySelector<HTMLElement>(".modal-foot .tbtn.primary") ||
+        modal.querySelector<HTMLElement>(".modal-foot .tbtn") ||
+        document.querySelector<HTMLElement>(".modal-x");
+      if (closer) {
+        closer.setAttribute("data-swept", "1");
+        await clickEl(closer);
+      }
+      await tick(200);
+      if (openModal()) closePanel(); // guarantee it's closed before touching the page again
+      dialogFilled = false;
+      await tick(D.click);
+      continue;
+    }
+
+    // No dialog open — sweep the background page.
+    const el = nextUnswept(document.body, "");
+    if (!el) break;
+    await clickEl(el);
+    bump();
     await tick(D.click);
   }
 }
