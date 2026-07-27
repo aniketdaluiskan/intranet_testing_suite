@@ -1,35 +1,43 @@
 import { navigate } from "./router";
 import { APPS } from "./apps/registry";
-import { VERBS } from "./lib/words";
 
 /**
- * In-page autopilot (synthetic events). Play → click every interactive element
- * on the current page one by one, then for each sub-app: open it, click all its
- * elements (re-collecting after churn navigations), edit text fields (delete a
- * few chars + type a few), go back to the portal, next app. 400ms per action.
- * Pause/resume/stop.
+ * In-page autopilot. FLOW mirrors the e2e sweep
+ * (tests/ui_validations/test_click_all_elements_local_app.py): discover every app
+ * from the registry (∪ any [data-app] tiles), then for each app — open it, fill
+ * every visible field, click EVERY leaf + interactive element (marking + re-scan so
+ * churn-revealed elements are covered), and click the Home button LAST — then move
+ * to the next app. MECHANISM mirrors SDA_v3's fill engine: per-field typed values
+ * dispatched with real input/change/click events on speed-profile delays, plus a
+ * live progress %. Events are in-page synthetic (isTrusted=false); the trusted
+ * variant is driver/autopilot_driver.py.
  *
- * NOTE: these are synthetic DOM events (isTrusted=false). For real hardware /
- * trusted events that record as real user input, use driver/autopilot_driver.py.
+ * Works in single-origin mode (hosted / `npm run dev`). Under multi-port
+ * serve-ports.mjs each app is a separate origin, so use the Playwright driver there.
  */
 
 export type ApState = "idle" | "running" | "paused";
 
-const INTERVAL = 400;
-const PER_APP = 40; // max clicks per app before moving on (bounds run time)
+// SDA-style speed profile (ms). type = per-field settle, click = between clicks.
+const D = { type: 14, click: 90, between: 60 };
+const PER_APP_CLICK_BUDGET = 160;
+const PER_APP_TIME_MS = 45_000;
 
-const SELECTOR =
-  'button, a[href], input, select, textarea, [role="menuitem"], [role="tab"], ' +
-  ".app-tile, .nav-i, .rtab, .mf, .stab, .thumb, .board-card, .chip, .row-open, .commit";
+// Mirrors the sweep's exclusions: never touch the autopilot bar or the portal's
+// meta-controls; the Home button and tile side-links are driven deliberately, not
+// in the generic sweep (Home is clicked LAST, tiles are the "enter app" trigger).
+const EXCLUDE = ".home-dot, [data-ap-control], .tile-port";
+const HOME_SELECTOR = ".home-dot";
 
 let state: ApState = "idle";
 let status = "";
+let progress = 0; // 0–100
 let stopFlag = false;
-let snap: { state: ApState; status: string } = { state, status };
+let snap: { state: ApState; status: string; progress: number } = { state, status, progress };
 const listeners = new Set<() => void>();
 
 function emit() {
-  snap = { state, status };
+  snap = { state, status, progress };
   listeners.forEach((l) => l());
 }
 export function apSubscribe(cb: () => void): () => void {
@@ -45,34 +53,70 @@ async function gate() {
   while (state === "paused" && !stopFlag) await sleep(120);
   if (stopFlag) throw new Error("stopped");
 }
-async function tick() {
+async function tick(ms = D.between) {
   await gate();
-  await sleep(INTERVAL);
+  await sleep(ms);
   await gate();
 }
+function setStatus(s: string) {
+  status = s;
+  emit();
+}
+function setProgress(p: number) {
+  progress = Math.max(0, Math.min(100, Math.round(p)));
+  emit();
+}
 
-function isVisible(el: HTMLElement): boolean {
+function visible(el: HTMLElement): boolean {
+  if (typeof el.checkVisibility === "function") return el.checkVisibility();
   const r = el.getBoundingClientRect();
   return r.width > 1 && r.height > 1 && el.offsetParent !== null;
 }
 
-function collect(excludeTiles: boolean): HTMLElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>(SELECTOR)).filter((el) => {
-    if (el.closest("[data-ap-control]")) return false; // never touch the autopilot bar
-    if (el.classList.contains("home-dot")) return false; // don't leave the app early
-    if (excludeTiles && el.classList.contains("app-tile")) return false;
-    if (el.hasAttribute("data-ap-done")) return false;
-    return isVisible(el);
+/** Registry-driven (auto picks up new apps) ∪ any [data-app] tiles in the DOM. */
+function discoverApps(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const a of APPS)
+    if (!seen.has(a.id)) {
+      seen.add(a.id);
+      out.push(a.id);
+    }
+  document.querySelectorAll("[data-app]").forEach((el) => {
+    const id = el.getAttribute("data-app");
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
   });
+  return out;
 }
 
-function word(n: number): string {
-  return VERBS[n % VERBS.length];
+/* ── SDA-style typed value per input kind ── */
+const WORDS = [
+  "Verified", "Confirmed", "Active", "Pending", "Approved", "Standard", "Primary", "Regional", "Quarterly", "Corporate",
+];
+let seedCtr = 1;
+const rnd = (n: number) => Math.floor(Math.random() * n);
+function valueForInput(el: HTMLInputElement | HTMLTextAreaElement): string {
+  const type =
+    el.tagName.toLowerCase() === "textarea" ? "textarea" : (el.getAttribute("type") || "text").toLowerCase();
+  const dg = () => String(rnd(10));
+  switch (type) {
+    case "email":
+      return `user${rnd(9000) + 1000}@acme.example`;
+    case "tel":
+      return `+1-${dg()}${dg()}${dg()}-${dg()}${dg()}${dg()}-${dg()}${dg()}${dg()}${dg()}`;
+    case "number":
+      return String(rnd(90000) + 100);
+    case "date":
+      return `${2020 + rnd(6)}-${String(1 + rnd(12)).padStart(2, "0")}-${String(1 + rnd(28)).padStart(2, "0")}`;
+    default:
+      return `${WORDS[rnd(WORDS.length)]}-${(seedCtr++).toString(36)}`;
+  }
 }
 
-/** Full pointer→mouse→click sequence at the element's center — the most
- * realistic click a page script can produce (still isTrusted=false, but fires
- * pointerdown/mousedown/focus/pointerup/mouseup/click like a real interaction). */
+/** Full pointer→mouse→click sequence at the element centre (in-page synthetic). */
 function realClick(el: HTMLElement): void {
   const r = el.getBoundingClientRect();
   const o: PointerEventInit & MouseEventInit = {
@@ -88,7 +132,6 @@ function realClick(el: HTMLElement): void {
     isPrimary: true,
   };
   el.dispatchEvent(new PointerEvent("pointerover", o));
-  el.dispatchEvent(new PointerEvent("pointerenter", o));
   el.dispatchEvent(new PointerEvent("pointerdown", o));
   el.dispatchEvent(new MouseEvent("mousedown", o));
   try {
@@ -101,90 +144,169 @@ function realClick(el: HTMLElement): void {
   el.dispatchEvent(new MouseEvent("click", o));
 }
 
-async function act(el: HTMLElement, i: number): Promise<void> {
-  el.setAttribute("data-ap-done", "1");
-  el.scrollIntoView({ block: "center", inline: "center" });
-  el.classList.add("ap-focus");
-  const tag = el.tagName.toLowerCase();
-  const type = (el.getAttribute("type") || "").toLowerCase();
-
-  if (tag === "textarea" || (tag === "input" && ["", "text", "email", "search"].includes(type))) {
-    const inp = el as HTMLInputElement;
-    inp.focus();
-    // delete a few characters
-    inp.value = (inp.value || "").slice(0, Math.max(0, (inp.value || "").length - 3));
-    inp.dispatchEvent(new Event("input", { bubbles: true }));
-    await sleep(INTERVAL / 2);
-    // type a few characters
-    for (const ch of " " + word(i)) {
-      inp.value += ch;
-      inp.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true }));
-      inp.dispatchEvent(new Event("input", { bubbles: true }));
-      inp.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
+/* ── SDA-style field fill: typed values + input/change events + delays ── */
+async function fillFields(): Promise<void> {
+  const inputs = Array.from(
+    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+      'input[type="text"], input[type="email"], input[type="tel"], input[type="number"], ' +
+        'input[type="search"], input[type="date"], input:not([type]), textarea',
+    ),
+  );
+  for (const el of inputs) {
+    await gate();
+    if (!visible(el) || el.closest(EXCLUDE)) continue;
+    try {
+      el.focus();
+      el.value = "";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      const val = valueForInput(el);
+      el.value = val;
+      const last = val.slice(-1);
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: last, bubbles: true }));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent("keyup", { key: last, bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch {
+      /* ignore */
     }
-    inp.dispatchEvent(new Event("change", { bubbles: true }));
-  } else if (tag === "input" && (type === "checkbox" || type === "radio")) {
-    el.click();
-  } else if (tag === "select") {
-    const sel = el as HTMLSelectElement;
-    if (sel.options.length > 1) {
-      sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length;
-      sel.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-  } else {
-    realClick(el); // buttons/links/tiles/tabs/nav — realistic sequence, may navigate + churn
+    await tick(D.type);
   }
-  el.classList.remove("ap-focus");
+  for (const sel of Array.from(document.querySelectorAll<HTMLSelectElement>("select"))) {
+    await gate();
+    if (!visible(sel) || sel.closest(EXCLUDE)) continue;
+    try {
+      if (sel.options.length > 1) {
+        realClick(sel);
+        sel.selectedIndex = 1 + rnd(sel.options.length - 1);
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    } catch {
+      /* ignore */
+    }
+    await tick();
+  }
+  for (const cb of Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
+    await gate();
+    if (!visible(cb) || cb.closest(EXCLUDE)) continue;
+    try {
+      if (!cb.checked) cb.click();
+    } catch {
+      /* ignore */
+    }
+  }
+  const groups: Record<string, HTMLInputElement[]> = {};
+  document.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((r) => {
+    if (r.name && visible(r) && !r.closest(EXCLUDE)) (groups[r.name] ||= []).push(r);
+  });
+  for (const grp of Object.values(groups)) {
+    await gate();
+    try {
+      grp[rnd(grp.length)].click();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
-async function clickThrough(excludeTiles: boolean, budget: number): Promise<void> {
+const SKIP_TAGS = new Set([
+  "SCRIPT", "STYLE", "LINK", "META", "HEAD", "TITLE", "NOSCRIPT", "BR", "HR", "HTML", "BODY", "IFRAME", "SELECT", "TEXTAREA",
+]);
+const SKIP_INPUT = new Set(["checkbox", "radio", "text", "email", "tel", "number", "search", "date", "password", ""]);
+
+function interactive(e: HTMLElement): boolean {
+  const t = e.tagName.toLowerCase();
+  if (t === "button" || t === "a" || t === "input" || t === "select" || t === "textarea") return true;
+  return e.hasAttribute("role") || e.hasAttribute("tabindex") || e.getAttribute("draggable") === "true" || e.isContentEditable;
+}
+
+/** Next un-swept leaf + interactive element (mirrors the Python _MARK_NEXT_UNSWEPT_JS). */
+function nextUnswept(): HTMLElement | null {
+  if (!document.body) return null;
+  for (const e of Array.from(document.body.querySelectorAll<HTMLElement>("*"))) {
+    if (e.hasAttribute("data-swept")) continue;
+    if (SKIP_TAGS.has(e.tagName)) continue;
+    if (e.closest(EXCLUDE)) continue;
+    if (e.tagName === "INPUT" && SKIP_INPUT.has((e.getAttribute("type") || "").toLowerCase())) continue;
+    if (e.children.length > 0 && !interactive(e)) continue; // skip pure wrapper containers
+    if (!visible(e)) continue;
+    e.setAttribute("data-swept", "1");
+    return e;
+  }
+  return null;
+}
+
+async function sweepApp(appId: string, appIdx: number, total: number): Promise<void> {
+  const t0 = Date.now();
+  setStatus(`${appId} · filling fields`);
+  await fillFields();
+  setStatus(`${appId} · clicking elements`);
   let clicks = 0;
-  while (clicks < budget) {
+  while (clicks < PER_APP_CLICK_BUDGET && Date.now() - t0 < PER_APP_TIME_MS) {
     await gate();
-    const targets = collect(excludeTiles);
-    if (targets.length === 0) break;
-    await act(targets[0], clicks);
+    const el = nextUnswept();
+    if (!el) break;
+    try {
+      el.scrollIntoView({ block: "center", inline: "center" });
+      el.classList.add("ap-focus");
+      realClick(el);
+      el.classList.remove("ap-focus");
+    } catch {
+      /* ignore */
+    }
     clicks++;
-    await tick();
+    setProgress(((appIdx + Math.min(1, clicks / PER_APP_CLICK_BUDGET)) / total) * 100);
+    await tick(D.click);
   }
 }
 
 async function run(): Promise<void> {
   try {
+    setProgress(0);
+    setStatus("Opening portal");
     navigate("/");
-    await sleep(600);
-    // 1) click the portal's own controls (not the tiles)
-    status = "Portal";
-    emit();
-    await clickThrough(true, 12);
+    await tick(500);
 
-    // 2) each sub-app: open tile → click everything → back
-    for (const app of APPS) {
-      await gate();
-      status = `Opening ${app.name}`;
-      emit();
-      navigate("/");
-      await sleep(400);
-      const tile = document.querySelector<HTMLElement>(`[data-app="${app.id}"]`);
-      if (tile) await act(tile, 0);
-      else navigate(`/${app.id}`);
-      await tick();
-      status = app.name;
-      emit();
-      await clickThrough(false, PER_APP);
-      navigate("/"); // back to main
-      await tick();
+    const apps = discoverApps();
+    if (apps.length === 0) {
+      await sweepApp("page", 0, 1);
+      setProgress(100);
+    } else {
+      for (let i = 0; i < apps.length; i++) {
+        await gate();
+        const id = apps[i];
+        setStatus(`Opening ${id}`);
+        navigate("/"); // ensure we're on the portal
+        await tick(300);
+        const tile = document.querySelector<HTMLElement>(`[data-app="${id}"]`);
+        if (tile) realClick(tile); // enter via the launcher tile (mirrors the sweep)
+        else navigate("/" + id);
+        await tick(500);
+
+        await sweepApp(id, i, apps.length);
+
+        // Home LAST — only after the app's elements are exhausted.
+        await gate();
+        setStatus(`${id} · returning home`);
+        const home = document.querySelector<HTMLElement>(HOME_SELECTOR);
+        if (home) realClick(home);
+        else navigate("/");
+        await tick(400);
+        setProgress(((i + 1) / apps.length) * 100);
+      }
+      setProgress(100);
     }
+    setStatus("Complete");
+    await sleep(600);
   } catch {
     /* stopped */
   }
   state = "idle";
-  status = "";
   stopFlag = false;
+  status = "";
   emit();
 }
 
-/** Play button: start if idle, resume if paused. */
+/** Play: start if idle, resume if paused. */
 export function apPlay(): void {
   if (state === "paused") {
     state = "running";
@@ -194,6 +316,7 @@ export function apPlay(): void {
   if (state === "running") return;
   state = "running";
   stopFlag = false;
+  progress = 0;
   emit();
   void run();
 }
@@ -207,5 +330,6 @@ export function apStop(): void {
   stopFlag = true;
   state = "idle";
   status = "";
+  progress = 0;
   emit();
 }

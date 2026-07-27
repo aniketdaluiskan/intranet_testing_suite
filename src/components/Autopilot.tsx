@@ -6,6 +6,11 @@ export default function Autopilot() {
   const s = useSyncExternalStore(apSubscribe, apSnapshot, apSnapshot);
   return (
     <div className="autopilot-bar" data-ap-control="1">
+      {s.state !== "idle" && (
+        <span className="ap-progress" title="Sweep progress">
+          {s.progress}%
+        </span>
+      )}
       {s.state === "running" ? (
         <button className="ap-btn" title="Pause" onClick={apPause}>
           ⏸

@@ -410,6 +410,7 @@ button.misid { cursor: default; }
 .ap-btn.play { background: #22c55e; }
 .ap-btn.stop { background: #ef4444; }
 .ap-btn:hover { filter: brightness(1.1); }
+.ap-progress { color: #fff; font-size: 11px; font-weight: 700; min-width: 34px; text-align: right; padding: 0 4px 0 8px; font-variant-numeric: tabular-nums; }
 .ap-status { color: #fff; font-size: 11px; padding: 0 8px 0 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ap-focus { outline: 3px solid #22c55e !important; outline-offset: 1px; box-shadow: 0 0 0 4px rgba(34,197,94,.25) !important; }
 
