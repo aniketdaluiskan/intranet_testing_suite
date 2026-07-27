@@ -30,13 +30,18 @@ const RATE_MAX = 20;
 let actionsPerSec = 5; // default; change at runtime via apSetRate()
 const stepMs = () => Math.round(1000 / actionsPerSec);
 const CHAR_MS = 1; // per-character typing delay (best-effort; UA timer clamp ~4 ms applies)
-// No fixed per-app cap (a click/time ceiling fought slow cadences and capped coverage). Instead an
-// app runs to FULL exhaustion, and we only move on when it STALLS or clearly LOOPS:
-//   INACTIVITY_MS  — move on if no action happens for 5 minutes (a genuine hang), and
-//   MAX_REVISITS   — move on if this many navigations in a row land back on already-seen views
-//                    (a list<->item churn cycle that re-mounts and would otherwise never converge).
+// No fixed element/time cap (a low ceiling fought slow cadences and capped coverage). An app runs
+// to FULL exhaustion, and we only move on when it STALLS or is clearly LOOPING:
+//   INACTIVITY_MS — move on if no action happens for 5 minutes (a genuine hang);
+//   MAX_NAVS      — move on after this many NAVIGATIONS in one app. Churn-heavy, navigation-heavy
+//                   apps (e.g. Outlook) mint a fresh rec-id URL on every click, so a re-mount loop
+//                   navigates endlessly without repeating a URL — counting navigations catches that
+//                   (a real app converges in far fewer); and
+//   MAX_ACTIONS   — a high hard backstop on total actions per app that catches ANY runaway loop,
+//                   including same-URL churn where the URL never even changes.
 const INACTIVITY_MS = 5 * 60_000;
-const MAX_REVISITS = 20;
+const MAX_NAVS = 150;
+const MAX_ACTIONS = 1200;
 
 // Mirrors the sweep's exclusions: never touch the autopilot bar or the portal's
 // meta-controls; the Home button and tile side-links are driven deliberately, not
@@ -303,29 +308,26 @@ async function clickEl(el: HTMLElement): Promise<void> {
 async function sweepApp(appId: string, appIdx: number, total: number): Promise<void> {
   let lastAction = Date.now();
   let actions = 0;
-  const seen = new Set<string>([location.pathname]);
-  let prevPath = location.pathname;
-  let revisit = 0;
+  let navCount = 0;
+  let prevUrl = location.pathname + location.search;
   const onAction = () => {
     lastAction = Date.now();
     actions++;
     setProgress(((appIdx + Math.min(0.95, actions / 500)) / total) * 100);
   };
-  // Track navigations: a new view resets the loop counter; landing back on an already-seen view
-  // bumps it. Only a run of MAX_REVISITS seen-view returns (with no new view in between) = a loop.
+  // Count a navigation whenever the URL changes (path OR query). Churn mints a fresh rec-id URL on
+  // each click in navigation-heavy apps, so a re-mount loop navigates endlessly -> navCount climbs.
   const trackNav = () => {
-    const p = location.pathname;
-    if (p !== prevPath) {
-      if (seen.has(p)) revisit++;
-      else {
-        seen.add(p);
-        revisit = 0;
-      }
-      prevPath = p;
+    const u = location.pathname + location.search;
+    if (u !== prevUrl) {
+      navCount++;
+      prevUrl = u;
     }
   };
-  // No fixed cap — stop this app only when it STALLS (no action for 5 min) or clearly LOOPS.
-  const stop = () => Date.now() - lastAction > INACTIVITY_MS || revisit > MAX_REVISITS;
+  // No fixed element cap -- an app exhausts naturally. Bail only on a genuine STALL, or a clear LOOP:
+  // too many navigations (MAX_NAVS), or a high total-action backstop (MAX_ACTIONS) for same-URL churn.
+  const stop = () =>
+    Date.now() - lastAction > INACTIVITY_MS || navCount > MAX_NAVS || actions > MAX_ACTIONS;
 
   // MODAL-FIRST: ANY interaction can open a dialog -- even a phase-1 leaf click that bubbles up to a
   // card/button. Whenever one is open we interact ONLY inside it (type its fields, set its controls,
