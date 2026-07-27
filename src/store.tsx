@@ -12,10 +12,18 @@ import { applySessionMeta, getSessionId } from "./session";
 
 /**
  * Global app state: the session tag and the "churn" controls that make labels /
- * PII keep moving. The churn tick is derived from the router's location.key
- * (bumped on every navigation/interaction) plus an optional idle timer, so:
- *   - every click that navigates regenerates all labels/values, and
- *   - if enabled, labels also rotate on a timer while idle.
+ * PII keep moving. The churn tick is derived from two sources:
+ *   - the router's location.key (bumped on every navigation), and
+ *   - timerGen: an optional idle timer that also rotates while idle.
+ * The 40% stable schema labels and the shared session Id are seeded independently
+ * of this tick (by slot index / session id), so they stay put across churn.
+ *
+ * NOTE: a per-click churn ("regenerate on EVERY click, not just navigations") was
+ * considered and deliberately NOT wired in. It remounts the it.id-keyed views
+ * (chat/form/list/board/cells + dialogs), which wipes the `data-swept` marks the
+ * in-page autopilot and the e2e sweep rely on — those sweeps would then never
+ * converge (and the modal "exhaust then close" step would stall). So churn stays
+ * on navigation + idle timer only.
  */
 export interface Settings {
   sessionTag: string;

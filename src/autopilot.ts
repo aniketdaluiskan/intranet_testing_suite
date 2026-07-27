@@ -19,15 +19,20 @@ import { closePanel } from "./apps/panel";
 
 export type ApState = "idle" | "running" | "paused";
 
-// Interaction pace: 3 element interactions per second -> one every ~333 ms. A single cadence spaces
-// every discrete action (field fill, select, checkbox/radio, element click). Dial RATE_PER_SEC to
-// change speed; STEP_MS is the derived delay used everywhere below.
-const RATE_PER_SEC = 3;
-const STEP_MS = Math.round(1000 / RATE_PER_SEC); // ~333 ms
-const D = { type: STEP_MS, click: STEP_MS, between: STEP_MS };
+// Action cadence: DEFAULT 5 click/enter actions per second (one every ~200 ms). Runtime-adjustable
+// via apSetRate(1..20). stepMs() is the gap between discrete actions (field commit, select,
+// checkbox/radio, element click). Typing within a field is separate — CHAR_MS between characters.
+// NOTE (best-effort at the extremes): browsers clamp setTimeout to ~4 ms, and on churn-heavy pages
+// every interaction triggers a re-render that adds latency, so 20/sec is a ceiling, NOT a guarantee
+// (sustaining it would need a config/perf update, e.g. lighter re-renders). 1/sec is the floor.
+const RATE_MIN = 1;
+const RATE_MAX = 20;
+let actionsPerSec = 5; // default; change at runtime via apSetRate()
+const stepMs = () => Math.round(1000 / actionsPerSec);
+const CHAR_MS = 1; // per-character typing delay (best-effort; UA timer clamp ~4 ms applies)
 const PER_APP_CLICK_BUDGET = 160;
-// 160 clicks at 3/sec take ~53 s on their own; give the per-app timer headroom so the element
-// budget (not the clock) stays the binding limit and every app still gets fully swept.
+// Per-app timer headroom so the element budget (not the clock) stays the binding limit and every
+// app still gets swept even at the slowest (1/sec) setting.
 const PER_APP_TIME_MS = 90_000;
 
 // Mirrors the sweep's exclusions: never touch the autopilot bar or the portal's
@@ -40,11 +45,11 @@ let state: ApState = "idle";
 let status = "";
 let progress = 0; // 0–100
 let stopFlag = false;
-let snap: { state: ApState; status: string; progress: number } = { state, status, progress };
+let snap: { state: ApState; status: string; progress: number; rate: number } = { state, status, progress, rate: actionsPerSec };
 const listeners = new Set<() => void>();
 
 function emit() {
-  snap = { state, status, progress };
+  snap = { state, status, progress, rate: actionsPerSec };
   listeners.forEach((l) => l());
 }
 export function apSubscribe(cb: () => void): () => void {
@@ -60,9 +65,9 @@ async function gate() {
   while (state === "paused" && !stopFlag) await sleep(120);
   if (stopFlag) throw new Error("stopped");
 }
-async function tick(ms = D.between) {
+async function tick(ms?: number) {
   await gate();
-  await sleep(ms);
+  await sleep(ms ?? stepMs());
   await gate();
 }
 function setStatus(s: string) {
@@ -166,17 +171,23 @@ async function fillFields(root: ParentNode): Promise<void> {
       el.focus();
       el.value = "";
       el.dispatchEvent(new Event("input", { bubbles: true }));
+      // Type character-by-character with CHAR_MS (1 ms) between chars — real keydown/input/keyup per
+      // char. (Actual gap is UA-clamped to ~4 ms; that's the "best-effort" caveat.)
       const val = valueForInput(el);
-      el.value = val;
-      const last = val.slice(-1);
-      el.dispatchEvent(new KeyboardEvent("keydown", { key: last, bubbles: true }));
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new KeyboardEvent("keyup", { key: last, bubbles: true }));
+      for (let ci = 0; ci < val.length; ci++) {
+        await gate();
+        const ch = val[ci];
+        el.value += ch;
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true }));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
+        await sleep(CHAR_MS);
+      }
       el.dispatchEvent(new Event("change", { bubbles: true }));
     } catch {
       /* ignore */
     }
-    await tick(D.type);
+    await tick(); // action-cadence gap before the next field
   }
   for (const sel of Array.from(root.querySelectorAll<HTMLSelectElement>("select"))) {
     await gate();
@@ -295,7 +306,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
       if (el) {
         await clickEl(el);
         bump();
-        await tick(D.click);
+        await tick();
         continue;
       }
       // Dialog exhausted -> close it (click its confirm/cancel/✕), THEN resume the page.
@@ -311,7 +322,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
       await tick(200);
       if (openModal()) closePanel(); // guarantee it's closed before touching the page again
       dialogFilled = false;
-      await tick(D.click);
+      await tick();
       continue;
     }
 
@@ -320,7 +331,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
     if (!el) break;
     await clickEl(el);
     bump();
-    await tick(D.click);
+    await tick();
   }
 }
 
@@ -397,4 +408,13 @@ export function apStop(): void {
   status = "";
   progress = 0;
   emit();
+}
+/** Set the action cadence (click/enter actions per second). Clamped to 1..20; default 5. Takes
+ * effect immediately, including mid-run. High values are best-effort (see the cadence note above). */
+export function apSetRate(n: number): void {
+  actionsPerSec = Math.max(RATE_MIN, Math.min(RATE_MAX, Math.round(n)));
+  emit();
+}
+export function apGetRate(): number {
+  return actionsPerSec;
 }
