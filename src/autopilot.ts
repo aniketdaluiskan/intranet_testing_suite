@@ -30,10 +30,13 @@ const RATE_MAX = 20;
 let actionsPerSec = 5; // default; change at runtime via apSetRate()
 const stepMs = () => Math.round(1000 / actionsPerSec);
 const CHAR_MS = 1; // per-character typing delay (best-effort; UA timer clamp ~4 ms applies)
-const PER_APP_CLICK_BUDGET = 160;
-// Per-app timer headroom so the element budget (not the clock) stays the binding limit and every
-// app still gets swept even at the slowest (1/sec) setting.
-const PER_APP_TIME_MS = 90_000;
+// No fixed per-app cap (a click/time ceiling fought slow cadences and capped coverage). Instead an
+// app runs to FULL exhaustion, and we only move on when it STALLS or clearly LOOPS:
+//   INACTIVITY_MS  — move on if no action happens for 5 minutes (a genuine hang), and
+//   MAX_REVISITS   — move on if this many navigations in a row land back on already-seen views
+//                    (a list<->item churn cycle that re-mounts and would otherwise never converge).
+const INACTIVITY_MS = 5 * 60_000;
+const MAX_REVISITS = 20;
 
 // Mirrors the sweep's exclusions: never touch the autopilot bar or the portal's
 // meta-controls; the Home button and tile side-links are driven deliberately, not
@@ -156,8 +159,8 @@ function realClick(el: HTMLElement): void {
   el.dispatchEvent(new MouseEvent("click", o));
 }
 
-/* ── SDA-style field fill: typed values + input/change events + delays ── */
-async function fillFields(root: ParentNode): Promise<void> {
+/* ── Phase 2: click + type each textbox, one by one (char-by-char, CHAR_MS between chars) ── */
+async function typeTextboxes(root: ParentNode, onAction: () => void, stop: () => boolean): Promise<void> {
   const inputs = Array.from(
     root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
       'input[type="text"], input[type="email"], input[type="tel"], input[type="number"], ' +
@@ -165,14 +168,15 @@ async function fillFields(root: ParentNode): Promise<void> {
     ),
   );
   for (const el of inputs) {
+    if (stop()) return;
     await gate();
-    if (!visible(el) || el.closest(EXCLUDE)) continue;
+    if (!visible(el) || el.closest(EXCLUDE) || el.hasAttribute("data-swept")) continue;
+    el.setAttribute("data-swept", "1");
     try {
+      await clickEl(el); // Phase 2 clicks the textbox first, THEN types into it
       el.focus();
       el.value = "";
       el.dispatchEvent(new Event("input", { bubbles: true }));
-      // Type character-by-character with CHAR_MS (1 ms) between chars — real keydown/input/keyup per
-      // char. (Actual gap is UA-clamped to ~4 ms; that's the "best-effort" caveat.)
       const val = valueForInput(el);
       for (let ci = 0; ci < val.length; ci++) {
         await gate();
@@ -181,17 +185,24 @@ async function fillFields(root: ParentNode): Promise<void> {
         el.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true }));
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
-        await sleep(CHAR_MS);
+        await sleep(CHAR_MS); // ~1 ms between characters (UA-clamped to ~4 ms — best-effort)
       }
       el.dispatchEvent(new Event("change", { bubbles: true }));
     } catch {
       /* ignore */
     }
+    onAction();
     await tick(); // action-cadence gap before the next field
   }
+}
+
+/* ── Phase 3: set the other interactables — selects, checkboxes, radios ── */
+async function setControls(root: ParentNode, onAction: () => void, stop: () => boolean): Promise<void> {
   for (const sel of Array.from(root.querySelectorAll<HTMLSelectElement>("select"))) {
+    if (stop()) return;
     await gate();
-    if (!visible(sel) || sel.closest(EXCLUDE)) continue;
+    if (!visible(sel) || sel.closest(EXCLUDE) || sel.hasAttribute("data-swept")) continue;
+    sel.setAttribute("data-swept", "1");
     try {
       if (sel.options.length > 1) {
         realClick(sel);
@@ -201,32 +212,37 @@ async function fillFields(root: ParentNode): Promise<void> {
     } catch {
       /* ignore */
     }
+    onAction();
     await tick();
   }
   for (const cb of Array.from(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
+    if (stop()) return;
     await gate();
-    if (!visible(cb) || cb.closest(EXCLUDE)) continue;
+    if (!visible(cb) || cb.closest(EXCLUDE) || cb.hasAttribute("data-swept")) continue;
+    cb.setAttribute("data-swept", "1");
     try {
-      if (!cb.checked) {
-        cb.click();
-        await tick();
-      }
+      if (!cb.checked) cb.click();
     } catch {
       /* ignore */
     }
+    onAction();
+    await tick();
   }
   const groups: Record<string, HTMLInputElement[]> = {};
   root.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((r) => {
     if (r.name && visible(r) && !r.closest(EXCLUDE)) (groups[r.name] ||= []).push(r);
   });
   for (const grp of Object.values(groups)) {
+    if (stop()) return;
     await gate();
+    grp.forEach((r) => r.setAttribute("data-swept", "1"));
     try {
       grp[rnd(grp.length)].click();
-      await tick();
     } catch {
       /* ignore */
     }
+    onAction();
+    await tick();
   }
 }
 
@@ -244,7 +260,7 @@ function interactive(e: HTMLElement): boolean {
 /** Next un-swept leaf + interactive element within ``root`` (mirrors the Python
  * _MARK_NEXT_UNSWEPT_JS). ``extra`` is an extra exclusion selector — used to hold a dialog's
  * close/confirm controls back until the rest of the dialog has been interacted with. */
-function nextUnswept(root: ParentNode, extra: string): HTMLElement | null {
+function nextUnswept(root: ParentNode, extra: string, nonInteractiveOnly = false): HTMLElement | null {
   for (const e of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
     if (e.hasAttribute("data-swept")) continue;
     if (SKIP_TAGS.has(e.tagName)) continue;
@@ -252,6 +268,7 @@ function nextUnswept(root: ParentNode, extra: string): HTMLElement | null {
     if (extra && e.closest(extra)) continue;
     if (e.tagName === "INPUT" && SKIP_INPUT.has((e.getAttribute("type") || "").toLowerCase())) continue;
     if (e.children.length > 0 && !interactive(e)) continue; // skip pure wrapper containers
+    if (nonInteractiveOnly && interactive(e)) continue; // Phase 1: non-interactive leaves only
     if (!visible(e)) continue;
     e.setAttribute("data-swept", "1");
     return e;
@@ -280,36 +297,73 @@ async function clickEl(el: HTMLElement): Promise<void> {
 }
 
 async function sweepApp(appId: string, appIdx: number, total: number): Promise<void> {
-  const t0 = Date.now();
-  setStatus(`${appId} · filling fields`);
-  await fillFields(document);
-  setStatus(`${appId} · clicking elements`);
-  let clicks = 0;
-  let dialogFilled = false;
-  const bump = () => {
-    clicks++;
-    setProgress(((appIdx + Math.min(1, clicks / PER_APP_CLICK_BUDGET)) / total) * 100);
+  let lastAction = Date.now();
+  let actions = 0;
+  const seen = new Set<string>([location.pathname]);
+  let prevPath = location.pathname;
+  let revisit = 0;
+  const onAction = () => {
+    lastAction = Date.now();
+    actions++;
+    setProgress(((appIdx + Math.min(0.95, actions / 500)) / total) * 100);
   };
+  // Track navigations: a new view resets the loop counter; landing back on an already-seen view
+  // bumps it. Only a run of MAX_REVISITS seen-view returns (with no new view in between) = a loop.
+  const trackNav = () => {
+    const p = location.pathname;
+    if (p !== prevPath) {
+      if (seen.has(p)) revisit++;
+      else {
+        seen.add(p);
+        revisit = 0;
+      }
+      prevPath = p;
+    }
+  };
+  // No fixed cap — stop this app only when it STALLS (no action for 5 min) or clearly LOOPS.
+  const stop = () => Date.now() - lastAction > INACTIVITY_MS || revisit > MAX_REVISITS;
 
-  while (clicks < PER_APP_CLICK_BUDGET && Date.now() - t0 < PER_APP_TIME_MS) {
+  // Phase 1 — click every non-interactive leaf (labels, text, cells, icons).
+  setStatus(`${appId} · text & labels`);
+  while (!stop()) {
+    await gate();
+    const el = nextUnswept(document.body, "", true);
+    if (!el) break;
+    await clickEl(el);
+    onAction();
+    trackNav();
+    await tick();
+  }
+  // Phase 2 — click + type each textbox, one by one.
+  setStatus(`${appId} · typing fields`);
+  await typeTextboxes(document, onAction, stop);
+  // Phase 3 — set the other interactables (selects, checkboxes, radios).
+  setStatus(`${appId} · controls`);
+  await setControls(document, onAction, stop);
+
+  // Phase 4 — sweep whatever is still pending (buttons, links, tabs, churn-revealed), modal-aware.
+  setStatus(`${appId} · sweep`);
+  let dialogFilled = false;
+  while (!stop()) {
     await gate();
     const modal = openModal();
-
     if (modal) {
-      // A dialog is open — interact ONLY inside it, never the background page.
+      // A dialog is open — interact ONLY inside it (same 4-phase spirit: type its fields, set its
+      // controls, click its body), holding its close/confirm controls back until last.
       if (!dialogFilled) {
         setStatus(`${appId} · dialog`);
-        await fillFields(modal);
+        await typeTextboxes(modal, onAction, stop);
+        await setControls(modal, onAction, stop);
         dialogFilled = true;
       }
-      const el = nextUnswept(modal, CLOSE_EXCLUDE); // dialog body, close/confirm held back
+      const el = nextUnswept(modal, CLOSE_EXCLUDE);
       if (el) {
         await clickEl(el);
-        bump();
+        onAction();
         await tick();
         continue;
       }
-      // Dialog exhausted -> close it (click its confirm/cancel/✕), THEN resume the page.
+      // Dialog exhausted -> close it, THEN resume the page.
       setStatus(`${appId} · closing dialog`);
       const closer =
         modal.querySelector<HTMLElement>(".modal-foot .tbtn.primary") ||
@@ -320,17 +374,17 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
         await clickEl(closer);
       }
       await tick(200);
-      if (openModal()) closePanel(); // guarantee it's closed before touching the page again
+      if (openModal()) closePanel();
       dialogFilled = false;
+      onAction();
       await tick();
       continue;
     }
-
-    // No dialog open — sweep the background page.
     const el = nextUnswept(document.body, "");
     if (!el) break;
     await clickEl(el);
-    bump();
+    onAction();
+    trackNav();
     await tick();
   }
 }
