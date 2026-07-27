@@ -39,9 +39,14 @@ const CHAR_MS = 1; // per-character typing delay (best-effort; UA timer clamp ~4
 //                   (a real app converges in far fewer); and
 //   MAX_ACTIONS   — a high hard backstop on total actions per app that catches ANY runaway loop,
 //                   including same-URL churn where the URL never even changes.
+// These sit ABOVE any legitimate single view, so real work is never cut — they only trip on loops.
+// Measured densest views: jira / asana ~1679 clickable+field elements each; every other app <= ~760.
+// A full single-page sweep plus its dialogs can reach the low thousands, so MAX_ACTIONS is kept well
+// clear of that. Converging apps make only a handful of navigations (a real loop racks up hundreds).
+// DEV BOUNDARY: keep any single view's interactive+leaf+field count under ~4000 (current max 1679).
 const INACTIVITY_MS = 5 * 60_000;
-const MAX_NAVS = 150;
-const MAX_ACTIONS = 1200;
+const MAX_NAVS = 300;
+const MAX_ACTIONS = 4000;
 
 // Mirrors the sweep's exclusions: never touch the autopilot bar or the portal's
 // meta-controls; the Home button and tile side-links are driven deliberately, not
@@ -170,11 +175,10 @@ function realClick(el: HTMLElement): void {
 
 /* ── Phase 2: click + type each textbox, one by one (char-by-char, CHAR_MS between chars) ── */
 async function typeTextboxes(root: ParentNode, onAction: () => void, stop: () => boolean): Promise<void> {
-  const inputs = Array.from(
-    root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-      'input[type="text"], input[type="email"], input[type="tel"], input[type="number"], ' +
-        'input[type="search"], input[type="date"], input:not([type]), textarea',
-    ),
+  const inputs = deepQueryAll<HTMLInputElement | HTMLTextAreaElement>(
+    root,
+    'input[type="text"], input[type="email"], input[type="tel"], input[type="number"], ' +
+      'input[type="search"], input[type="date"], input:not([type]), textarea',
   );
   for (const el of inputs) {
     if (stop()) return;
@@ -207,7 +211,7 @@ async function typeTextboxes(root: ParentNode, onAction: () => void, stop: () =>
 
 /* ── Phase 3: set the other interactables — selects, checkboxes, radios ── */
 async function setControls(root: ParentNode, onAction: () => void, stop: () => boolean): Promise<void> {
-  for (const sel of Array.from(root.querySelectorAll<HTMLSelectElement>("select"))) {
+  for (const sel of deepQueryAll<HTMLSelectElement>(root, "select")) {
     if (stop()) return;
     await gate();
     if (!visible(sel) || sel.closest(EXCLUDE) || sel.hasAttribute("data-swept")) continue;
@@ -224,7 +228,7 @@ async function setControls(root: ParentNode, onAction: () => void, stop: () => b
     onAction();
     await tick();
   }
-  for (const cb of Array.from(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
+  for (const cb of deepQueryAll<HTMLInputElement>(root, 'input[type="checkbox"]')) {
     if (stop()) return;
     await gate();
     if (!visible(cb) || cb.closest(EXCLUDE) || cb.hasAttribute("data-swept")) continue;
@@ -238,7 +242,7 @@ async function setControls(root: ParentNode, onAction: () => void, stop: () => b
     await tick();
   }
   const groups: Record<string, HTMLInputElement[]> = {};
-  root.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((r) => {
+  deepQueryAll<HTMLInputElement>(root, 'input[type="radio"]').forEach((r) => {
     if (r.name && visible(r) && !r.closest(EXCLUDE)) (groups[r.name] ||= []).push(r);
   });
   for (const grp of Object.values(groups)) {
@@ -266,11 +270,35 @@ function interactive(e: HTMLElement): boolean {
   return e.hasAttribute("role") || e.hasAttribute("tabindex") || e.getAttribute("draggable") === "true" || e.isContentEditable;
 }
 
+/** Walk the COMPOSED tree: light DOM + open shadow roots + same-origin iframes (recursively). This
+ * is what lets the sweep reach content the top document's querySelectorAll can't see — e.g. Capture
+ * Lab's nested same-origin iframes. Cross-origin iframes and closed shadow roots stay unreachable. */
+function* deepEls(root: ParentNode): Generator<HTMLElement> {
+  for (const e of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+    yield e;
+    if (e.shadowRoot) yield* deepEls(e.shadowRoot);
+    if (e.tagName === "IFRAME") {
+      try {
+        const d = (e as HTMLIFrameElement).contentDocument;
+        if (d && d.body) yield* deepEls(d.body);
+      } catch {
+        /* cross-origin iframe — unreachable, skip */
+      }
+    }
+  }
+}
+/** Deep querySelectorAll across that same composed tree (light + shadow + same-origin iframes). */
+function deepQueryAll<T extends HTMLElement>(root: ParentNode, selector: string): T[] {
+  const out: T[] = [];
+  for (const e of deepEls(root)) if (e.matches(selector)) out.push(e as T);
+  return out;
+}
+
 /** Next un-swept leaf + interactive element within ``root`` (mirrors the Python
  * _MARK_NEXT_UNSWEPT_JS). ``extra`` is an extra exclusion selector — used to hold a dialog's
  * close/confirm controls back until the rest of the dialog has been interacted with. */
 function nextUnswept(root: ParentNode, extra: string, nonInteractiveOnly = false): HTMLElement | null {
-  for (const e of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+  for (const e of deepEls(root)) {
     if (e.hasAttribute("data-swept")) continue;
     if (SKIP_TAGS.has(e.tagName)) continue;
     if (e.closest(EXCLUDE)) continue;
