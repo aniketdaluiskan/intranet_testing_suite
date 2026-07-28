@@ -2,7 +2,8 @@ import { useRef, useState, type FC, type ReactNode } from "react";
 import { accentVar, useActive, useSelection, useView, type View } from "./view";
 import { CountedAttributes, fieldItems } from "./attrs";
 import { capacityOf, type AppDef } from "./registry";
-import { pii, genValue } from "../lib/pii";
+import { pii, genValue, controlFor, optionsFor, type ValueKind } from "../lib/pii";
+import { schemaFor, type Field } from "../lib/schemas";
 import { hostFor } from "../lib/hosts";
 import { usePanel, closePanel } from "./panel";
 import { ScenariosLayout } from "./scenarios";
@@ -517,6 +518,377 @@ const MailLayout: FC<{ app: AppDef }> = ({ app }) => {
             </button>
           </div>
         </section>
+      </div>
+    </div>
+  );
+};
+
+/* ══════════════ Calendar: mini-month + month grid + day agenda ══════════════ */
+const CAL_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const CAL_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const CAL_TIMES = ["8:00", "9:00", "9:30", "10:00", "11:00", "12:30", "13:00", "14:00", "15:30", "16:00", "17:00"];
+const CAL_EVENTS = ["Standup", "1:1", "Sprint Review", "Design Sync", "Interview", "Planning", "Retro", "All-hands", "Demo", "Client Call", "Deep work", "Onboarding", "Budget Review", "QBR", "Release Cut", "Sync"];
+const CAL_CALS = [
+  { name: "My calendar", color: "#2563eb" },
+  { name: "Team", color: "#16a34a" },
+  { name: "Interviews", color: "#7c3aed" },
+  { name: "Holidays", color: "#d97706" },
+  { name: "Rooms", color: "#db2777" },
+];
+
+const CalendarLayout: FC<{ app: AppDef }> = ({ app }) => {
+  const v = useView(app);
+  const cap = capacityOf(app).perView;
+  const [view, setView] = useActive(0); // Month / Week / Day / Schedule
+  const [selDay, setSelDay] = useActive(15);
+  const base = v.lab(1).base;
+  const year = 2026;
+  const monthIdx = ((v.tick % 12) + 12) % 12; // churn advances the month, so it feels live
+  const startDow = new Date(year, monthIdx, 1).getDay();
+  const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
+  const prevDays = new Date(year, monthIdx, 0).getDate();
+  const today = 15; // stable "today" marker within a month
+
+  const evTitle = (s: number) => (s % 2 === 0 ? CAL_EVENTS[s % CAL_EVENTS.length] : genValue("text", s));
+  const eventsFor = (day: number) => {
+    const h = (base + day * 7) >>> 0;
+    return Array.from({ length: h % 4 }, (_, k) => {
+      const s = base + day * 13 + k * 5;
+      return { time: CAL_TIMES[(h + k * 3) % CAL_TIMES.length], title: evTitle(s), color: CAL_CALS[(day + k) % CAL_CALS.length].color };
+    });
+  };
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const dayNum = i - startDow + 1;
+    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+    const label = inMonth ? dayNum : dayNum < 1 ? prevDays + dayNum : dayNum - daysInMonth;
+    return { i, inMonth, label };
+  });
+  const views = ["Month", "Week", "Day", "Schedule"];
+  const agenda = eventsFor(selDay);
+
+  return (
+    <div className="app cal" style={accentVar(v.accent)}>
+      <header className="cal-top" style={{ background: v.accent }}>
+        <Home v={v} />
+        <b>{app.name}</b>
+        <EnvChip id={app.id} />
+        <button className="cal-create" onClick={() => v.go(v.act(0), 0)}>
+          + Create
+        </button>
+        <div className="cal-nav">
+          <button className="cal-arrow" aria-label="Previous month" onClick={() => v.goView("Prev", 11)}>
+            ‹
+          </button>
+          <button className="cal-today" onClick={() => v.goView("Today", 12)}>
+            Today
+          </button>
+          <button className="cal-arrow" aria-label="Next month" onClick={() => v.goView("Next", 13)}>
+            ›
+          </button>
+        </div>
+        <span className="cal-title">
+          {CAL_MONTHS[monthIdx]} {year}
+        </span>
+        <div className="cal-views">
+          {views.map((vn, i) => (
+            <button
+              key={vn}
+              className={"cal-view" + (i === view ? " on" : "")}
+              onClick={() => {
+                setView(i);
+                v.goView(vn, 20 + i);
+              }}
+            >
+              {vn}
+            </button>
+          ))}
+        </div>
+        <input className="cal-search" placeholder="Search records" aria-label="Search calendar" />
+        <Avatar seed={base + 5} />
+      </header>
+
+      <div className="cal-body">
+        <aside className="cal-side">
+          <button className="cal-side-create" onClick={() => v.go("Create event", 1)}>
+            + Create
+          </button>
+          <div className="mini">
+            <div className="mini-h">
+              {CAL_MONTHS[monthIdx]} {year}
+            </div>
+            <div className="mini-grid">
+              {CAL_DOW.map((d) => (
+                <span key={d} className="mini-dow">
+                  {d[0]}
+                </span>
+              ))}
+              {cells.map((c) => (
+                <button
+                  key={c.i}
+                  className={"mini-day" + (c.inMonth ? "" : " out") + (c.inMonth && c.label === today ? " today" : "")}
+                  onClick={() => {
+                    if (c.inMonth) {
+                      setSelDay(c.label);
+                      v.goView("Day " + c.label, 40 + c.label);
+                    }
+                  }}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="cal-list">
+            <div className="cal-list-h">My calendars</div>
+            {CAL_CALS.map((cl, i) => (
+              <label key={cl.name} className="cal-cbx">
+                <input type="checkbox" defaultChecked={i < 3} aria-label={cl.name} />
+                <span className="cal-dot" style={{ background: cl.color }} />
+                {cl.name}
+              </label>
+            ))}
+          </div>
+        </aside>
+
+        <main className="cal-main">
+          <div className="cal-grid">
+            {CAL_DOW.map((d) => (
+              <div key={d} className="cal-dow">
+                {d}
+              </div>
+            ))}
+            {cells.map((c) => {
+              const evs = c.inMonth ? eventsFor(c.label) : [];
+              return (
+                <button
+                  key={c.i}
+                  className={
+                    "cal-cell" +
+                    (c.inMonth ? "" : " out") +
+                    (c.inMonth && c.label === today ? " today" : "") +
+                    (c.inMonth && c.label === selDay ? " sel" : "")
+                  }
+                  onClick={() => {
+                    if (c.inMonth) {
+                      setSelDay(c.label);
+                      v.goView("Day " + c.label, 40 + c.label);
+                    }
+                  }}
+                >
+                  <span className="cal-num">{c.label}</span>
+                  <span className="cal-evs">
+                    {evs.map((e, k) => (
+                      <span key={k} className="cal-ev" style={{ borderColor: e.color }} title={`${e.time} ${e.title}`}>
+                        <span className="cal-ev-t">{e.time}</span> {e.title}
+                      </span>
+                    ))}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </main>
+
+        <aside className="cal-agenda">
+          <div className="cal-agenda-h">
+            {CAL_MONTHS[monthIdx]} {selDay}
+          </div>
+          <ul className="cal-agenda-list">
+            {agenda.length === 0 && <li className="cal-agenda-empty">No events scheduled</li>}
+            {agenda.map((e, k) => (
+              <li key={k} className="cal-agenda-ev">
+                <span className="cal-dot" style={{ background: e.color }} />
+                <span className="cal-agenda-time">{e.time}</span>
+                <span className="cal-agenda-title">{e.title}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="pane-h">Event details</div>
+          <CountedAttributes
+            lab={v.lab(1)}
+            valid={cap.valid}
+            invalid={cap.invalid}
+            appId={v.app.id}
+            showPII={v.showPII}
+            role={v.role}
+            variant="form"
+          />
+        </aside>
+      </div>
+    </div>
+  );
+};
+
+/* ══════════════ Timesheet / Time & Attendance: week grid + totals ══════════════ */
+const TS_WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const TS_TASKS = ["Development", "Code Review", "Design", "Standup", "Sprint Planning", "QA / Testing", "Documentation", "Support", "Research", "Deployment"];
+const TS_PROJECTS = ["Atlas", "Orion", "Helix", "Nimbus", "Falcon", "Beacon"];
+const TS_STATUS = ["Draft", "Submitted", "Approved"];
+
+const TimesheetLayout: FC<{ app: AppDef }> = ({ app }) => {
+  const v = useView(app);
+  const cap = capacityOf(app).perView;
+  const [status, setStatus] = useActive(0);
+  const base = v.lab(1).base;
+  const rows = 9;
+  const weekOffset = ((v.tick % 8) + 8) % 8; // churn advances the pay week
+  const days = Array.from({ length: 7 }, (_, i) => new Date(2026, 0, 5 + weekOffset * 7 + i)); // Jan 5 2026 = a Monday
+  const start = days[0];
+  const end = days[6];
+
+  const hoursAt = (t: number, d: number): number => {
+    const h = (base + t * 31 + d * 13) >>> 0;
+    if (d >= 5) return h % 6 === 0 ? (h % 3) + 1 : 0; // weekends usually empty
+    return h % 9; // weekdays 0..8h
+  };
+  const taskName = (t: number) => TS_TASKS[(base + t) % TS_TASKS.length];
+  const project = (t: number) => TS_PROJECTS[(base + t * 3) % TS_PROJECTS.length];
+  const code = (t: number) => `PRJ-${((base + t * 17) % 9000) + 1000}`;
+  const rowTotal = (t: number) => Array.from({ length: 7 }, (_, d) => hoursAt(t, d)).reduce((a, b) => a + b, 0);
+  const dayTotal = (d: number) => Array.from({ length: rows }, (_, t) => hoursAt(t, d)).reduce((a, b) => a + b, 0);
+  const grand = Array.from({ length: rows }, (_, t) => rowTotal(t)).reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="app tsheet" style={accentVar(v.accent)}>
+      <header className="ts-top" style={{ background: v.accent }}>
+        <Home v={v} />
+        <b>{app.name}</b>
+        <EnvChip id={app.id} />
+        <div className="ts-week">
+          <button className="ts-arrow" aria-label="Previous week" onClick={() => v.goView("Prev week", 11)}>
+            ‹
+          </button>
+          <span className="ts-range">
+            {CAL_MONTHS[start.getMonth()]} {start.getDate()} – {CAL_MONTHS[end.getMonth()]} {end.getDate()}, {end.getFullYear()}
+          </span>
+          <button className="ts-arrow" aria-label="Next week" onClick={() => v.goView("Next week", 13)}>
+            ›
+          </button>
+        </div>
+        <span className={"ts-status s" + status}>{TS_STATUS[status]}</span>
+        <button className="ts-submit" onClick={() => v.go("Submit for approval", 5)}>
+          Submit for approval
+        </button>
+        <input className="ts-search" placeholder="Search records" aria-label="Search timesheet" />
+        <Avatar seed={base + 5} />
+      </header>
+
+      <div className="ts-body">
+        <aside className="ts-side">
+          <button className="ts-add" onClick={() => v.go("Add row", 1)}>
+            + Add row
+          </button>
+          <div className="ts-card">
+            <div className="ts-card-h">Pay period</div>
+            <div className="ts-card-v">
+              {CAL_MONTHS[start.getMonth()]} {start.getDate()} – {end.getDate()}
+            </div>
+          </div>
+          <div className="ts-emp">
+            <Avatar seed={base + 2} />
+            <div>
+              <div className="ts-emp-n">{pii("name", base + 2)}</div>
+              <div className="ts-emp-i">{pii("empId", base + 2)}</div>
+            </div>
+          </div>
+          <label className="ts-field">
+            <span>Status</span>
+            <select
+              value={TS_STATUS[status]}
+              aria-label="Timesheet status"
+              onChange={(e) => setStatus(Math.max(0, TS_STATUS.indexOf(e.target.value)))}
+            >
+              {TS_STATUS.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+          <label className="ts-field">
+            <span>Approver</span>
+            <input defaultValue={pii("name", base + 9)} aria-label="Approver" />
+          </label>
+          <div className="ts-total-side">
+            Week total <b>{grand}h</b>
+          </div>
+        </aside>
+
+        <main className="ts-main">
+          <div className="ts-grid-wrap">
+            <table className="ts-grid">
+              <thead>
+                <tr>
+                  <th className="ts-taskcol" scope="col">
+                    Project / Task
+                  </th>
+                  {days.map((d, i) => (
+                    <th key={i} className={"ts-day" + (i >= 5 ? " wknd" : "")} scope="col">
+                      <span className="ts-dow">{TS_WD[i]}</span>
+                      <span className="ts-dt">
+                        {d.getMonth() + 1}/{d.getDate()}
+                      </span>
+                    </th>
+                  ))}
+                  <th className="ts-totcol" scope="col">
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: rows }, (_, t) => (
+                  <tr key={t}>
+                    <th className="ts-task" scope="row">
+                      <span className="ts-task-n">{taskName(t)}</span>
+                      <span className="ts-task-c">
+                        {project(t)} · {code(t)}
+                      </span>
+                    </th>
+                    {days.map((_, d) => {
+                      const hrs = hoursAt(t, d);
+                      return (
+                        <td key={d} className={"ts-cell" + (d >= 5 ? " wknd" : "")}>
+                          <input
+                            type="number"
+                            className="ts-h"
+                            aria-label={`${taskName(t)} ${TS_WD[d]} hours`}
+                            defaultValue={hrs || ""}
+                            min={0}
+                            max={24}
+                            step={0.5}
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className="ts-rowtot">{rowTotal(t)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th className="ts-task ts-foot-l" scope="row">
+                    Daily total
+                  </th>
+                  {days.map((_, d) => (
+                    <td key={d} className={"ts-daytot" + (d >= 5 ? " wknd" : "")}>
+                      {dayTotal(d)}
+                    </td>
+                  ))}
+                  <td className="ts-grand">{grand}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div className="pane-h">Entry details</div>
+          <CountedAttributes
+            lab={v.lab(1)}
+            valid={cap.valid}
+            invalid={cap.invalid}
+            appId={v.app.id}
+            showPII={v.showPII}
+            role={v.role}
+            variant="form"
+          />
+        </main>
       </div>
     </div>
   );
@@ -1756,36 +2128,27 @@ const HRMSLayout: FC<{ app: AppDef }> = ({ app }) => {
 /* ══════════════ Dynamic Forms — stepper ══════════════ */
 const FormsLayout: FC<{ app: AppDef }> = ({ app }) => {
   const v = useView(app);
-  const cap = capacityOf(app).perView;
   const [step, setStep] = useActive(1);
-  const steps = ["Applicant", "Details", "Review", "Submit"];
+  const secs = schemaFor(app.id).sections;
+  // Domain-appropriate wizard steps from the app's own sections (e.g. loan: New Application → In
+  // Review → Approved → Funded; KYC: New → Pending Docs → In Review → Verified), not a fixed list.
+  const steps = (secs.length >= 4 ? secs.slice(0, 4) : [...secs, "Review", "Submit"]).slice(0, 4);
   return (
     <div className="app forms" style={accentVar(v.accent)}>
       <AppTopBar v={v} />
       <div className="forms-wrap">
         <ol className="stepper">
           {steps.map((s, i) => (
-            <li key={s} className={"step" + (i === step ? " on" : "") + (i < step ? " done" : "")}>
+            <li key={s + i} className={"step" + (i === step ? " on" : "") + (i < step ? " done" : "")}>
               <span className="step-n">{i + 1}</span> {s}
             </li>
           ))}
         </ol>
         <main className="forms-main">
           <h2>
-            {steps[step]} — {v.sec(0)}
+            {steps[step]} — {app.name}
           </h2>
-          <label className="fc chk form-sameas">
-            <input type="checkbox" /> Mailing address same as applicant
-          </label>
-          <CountedAttributes
-            lab={v.lab(1)}
-            valid={cap.valid}
-            invalid={cap.invalid}
-            appId={v.app.id}
-            showPII={v.showPII}
-            role={v.role}
-            variant="form"
-          />
+          <DialogForm app={app} base={v.lab(1).base} showPII={v.showPII} />
           <label className="fc chk form-consent">
             <input type="checkbox" required /> I confirm the information provided is accurate and
             consent to processing.
@@ -2518,6 +2881,205 @@ const CiLayout: FC<{ app: AppDef }> = ({ app }) => {
 };
 
 /* ══════════════ Generic records (fallback) ══════════════ */
+// Per-domain summary band so records apps read as their own line of business (balances for banking,
+// AUM/P&L for trading, alert queue for risk, ledger for finance, …) instead of an identical table.
+const DOMAIN_KPIS: Record<string, { label: string; kind: ValueKind }[]> = {
+  banking: [{ label: "Total Balance", kind: "money" }, { label: "Open Accounts", kind: "count" }, { label: "Overdrawn", kind: "count" }, { label: "Dormant", kind: "count" }],
+  payments: [{ label: "Processed Today", kind: "count" }, { label: "Value", kind: "money" }, { label: "Held", kind: "count" }, { label: "Returned", kind: "count" }],
+  lending: [{ label: "In Pipeline", kind: "count" }, { label: "Approved", kind: "money" }, { label: "Declined", kind: "count" }, { label: "Funded YTD", kind: "money" }],
+  insurance: [{ label: "Open Claims", kind: "count" }, { label: "Reserves", kind: "money" }, { label: "Paid YTD", kind: "money" }, { label: "Pending Review", kind: "count" }],
+  invest: [{ label: "AUM", kind: "money" }, { label: "Day P&L", kind: "money" }, { label: "Open Orders", kind: "count" }, { label: "Positions", kind: "count" }],
+  risk: [{ label: "Open Alerts", kind: "count" }, { label: "High Severity", kind: "count" }, { label: "SARs Filed", kind: "count" }, { label: "Cleared", kind: "count" }],
+  finance: [{ label: "Debits", kind: "money" }, { label: "Credits", kind: "money" }, { label: "Variance", kind: "money" }, { label: "Open Items", kind: "count" }],
+  procure: [{ label: "Open POs", kind: "count" }, { label: "Spend YTD", kind: "money" }, { label: "Vendors", kind: "count" }, { label: "Pending Approval", kind: "count" }],
+  hr: [{ label: "Headcount", kind: "count" }, { label: "Open Reqs", kind: "count" }, { label: "On Leave", kind: "count" }, { label: "Payroll Run", kind: "money" }],
+  itservice: [{ label: "Total Assets", kind: "count" }, { label: "In Stock", kind: "count" }, { label: "Assigned", kind: "count" }, { label: "Retired", kind: "count" }],
+  sales: [{ label: "Pipeline", kind: "money" }, { label: "Won YTD", kind: "money" }, { label: "Open Deals", kind: "count" }, { label: "Leads", kind: "count" }],
+};
+function DomainStrip({ app, seed }: { app: AppDef; seed: number }) {
+  const kpis = DOMAIN_KPIS[app.group];
+  if (!kpis) return null;
+  return (
+    <div className="domain-strip">
+      {kpis.map((k, i) => (
+        <div className="kpi" key={k.label}>
+          <span className="kpi-val">{genValue(k.kind, seed + i * 11)}</span>
+          <span className="kpi-lbl">{k.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Domain filter bar: selects built from the app's own option-bearing fields (Status, Priority,
+ * Department, Country, …) so a loan queue filters by Application Status, a claim list by Claim
+ * Status, an AML queue by Alert Status — instead of a hardcoded State/Priority pair everywhere. */
+function SchemaFilters({ app }: { app: AppDef }) {
+  const withOpts = schemaFor(app.id).fields.filter((f) => optionsFor(f.kind));
+  const use: Field[] = withOpts.length ? withOpts.slice(0, 3) : [{ label: "Status", kind: "status" }];
+  return (
+    <>
+      {use.map((f, i) => (
+        <label key={f.label + i}>
+          {f.label}
+          <select aria-label={f.label}>
+            <option>All</option>
+            {(optionsFor(f.kind) || []).slice(0, 6).map((o) => (
+              <option key={o}>{o}</option>
+            ))}
+          </select>
+        </label>
+      ))}
+    </>
+  );
+}
+
+/* ══════════════ vertical (line-of-business) layouts ══════════════ */
+type VertChrome = "accounts" | "blotter" | "queue" | "ledger" | "pipeline";
+const VERT_CHROME: Record<string, VertChrome> = {
+  banking: "accounts",
+  invest: "blotter",
+  risk: "queue",
+  payments: "queue",
+  insurance: "queue",
+  lending: "pipeline",
+  procure: "pipeline",
+  finance: "ledger",
+};
+
+/** Left panel that reflects the vertical: an account rail (banking), a live watchlist (trading), a
+ * triage-queue folder list (risk/payments/insurance), or the app's section nav (pipeline/ledger). */
+function VertSide({ app, v, chrome }: { app: AppDef; v: View; chrome: VertChrome }) {
+  const base = v.lab(5).base;
+  if (chrome === "accounts") {
+    return (
+      <aside className="vert-side accounts">
+        <div className="vs-h">Accounts</div>
+        {Array.from({ length: 8 }, (_, i) => (
+          <button key={i} className="acct-row" onClick={() => v.go(pii("name", base + i), i)}>
+            <span className="acct-name">{pii("name", base + i)}</span>
+            <span className="acct-bal">{genValue("money", base + i * 3)}</span>
+          </button>
+        ))}
+      </aside>
+    );
+  }
+  if (chrome === "blotter") {
+    return (
+      <aside className="vert-side blotter">
+        <div className="vs-h">Watchlist</div>
+        {["AAPL", "MSFT", "NVDA", "JPM", "GS", "BAC", "XOM", "TSLA", "AMZN"].map((s, i) => (
+          <button key={s} className="tick-row" onClick={() => v.go(s, i)}>
+            <span className="tick-sym">{s}</span>
+            <span className={"tick-px " + ((v.tick + i) % 2 ? "up" : "dn")}>{genValue("money", base + i * 5)}</span>
+          </button>
+        ))}
+      </aside>
+    );
+  }
+  if (chrome === "queue") {
+    const secs = schemaFor(app.id).sections.slice(0, 7);
+    return (
+      <aside className="vert-side queue">
+        <div className="vs-h">Queues</div>
+        {secs.map((s, i) => (
+          <button key={s} className="q-row" onClick={() => v.go(s, i)}>
+            <span className={"q-dot d" + (i % 4)} /> {s}
+            <span className="q-n">{genValue("count", base + i * 7)}</span>
+          </button>
+        ))}
+      </aside>
+    );
+  }
+  return <Nav v={v} n={8} active={0} onPick={() => undefined} cls="fr-side" />;
+}
+
+/** Top band that reflects the vertical: a stage pipeline (lending/procurement), a period + debit/
+ * credit summary (finance ledger), or a market ticker strip (trading). */
+function VertHero({ app, v, chrome }: { app: AppDef; v: View; chrome: VertChrome }) {
+  const base = v.lab(6).base;
+  if (chrome === "pipeline") {
+    const stages = schemaFor(app.id).sections.slice(0, 5);
+    return (
+      <div className="vert-pipeline">
+        {stages.map((s, i) => (
+          <div key={s} className={"pl-stage" + (i === 1 ? " on" : "")}>
+            <span className="pl-n">{genValue("count", base + i * 4)}</span>
+            <span className="pl-lbl">{s}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (chrome === "ledger") {
+    return (
+      <div className="vert-period">
+        <label>
+          Period
+          <select aria-label="Period">
+            <option>FY2024 Q{(v.tick % 4) + 1}</option>
+            <option>FY2024 Q{((v.tick + 1) % 4) + 1}</option>
+            <option>FY2023 Q4</option>
+          </select>
+        </label>
+        <span className="ledger-bal">
+          Debits <b>{genValue("money", base)}</b> · Credits <b>{genValue("money", base + 3)}</b>
+        </span>
+      </div>
+    );
+  }
+  if (chrome === "blotter") {
+    return (
+      <div className="vert-ticker">
+        {["S&P 500", "NASDAQ", "DOW", "FTSE 100", "VIX", "10Y"].map((s, i) => (
+          <span key={s} className={"tk " + ((v.tick + i) % 2 ? "up" : "dn")}>
+            {s} {genValue("percent", base + i * 3)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
+
+const VerticalLayout: FC<{ app: AppDef }> = ({ app }) => {
+  const v = useView(app);
+  const cap = capacityOf(app).perView;
+  const chrome = VERT_CHROME[app.group] ?? "queue";
+  return (
+    <div className={"app records vert-" + chrome} style={accentVar(v.accent)}>
+      <AppTopBar v={v} search={"Search " + app.name} />
+      <div className="fr-body">
+        <VertSide app={app} v={v} chrome={chrome} />
+        <main className="fr-main">
+          <div className="crumb">
+            {app.name} › {v.sec(0)}
+          </div>
+          <DomainStrip app={app} seed={v.lab(2).base} />
+          <VertHero app={app} v={v} chrome={chrome} />
+          <div className="filter-bar">
+            <SchemaFilters app={app} />
+            <ToolbarButtons v={v} n={3} />
+          </div>
+          <div className="list-head">
+            {v.sec(0)} · {cap.valid} records
+          </div>
+          <CountedAttributes
+            lab={v.lab(1)}
+            valid={cap.valid}
+            invalid={cap.invalid}
+            appId={v.app.id}
+            showPII={v.showPII}
+            role={v.role}
+            variant="table"
+            select
+          />
+        </main>
+      </div>
+    </div>
+  );
+};
+
 const RecordsLayout: FC<{ app: AppDef }> = ({ app }) => {
   const v = useView(app);
   const cap = capacityOf(app).perView;
@@ -2531,26 +3093,9 @@ const RecordsLayout: FC<{ app: AppDef }> = ({ app }) => {
           <div className="crumb">
             {app.name} › {v.sec(active)}
           </div>
+          <DomainStrip app={app} seed={v.lab(2).base} />
           <div className="filter-bar">
-            <label>
-              State
-              <select aria-label="State">
-                <option>All</option>
-                <option>Open</option>
-                <option>In Progress</option>
-                <option>Closed</option>
-              </select>
-            </label>
-            <label>
-              Priority
-              <select aria-label="Priority">
-                <option>All</option>
-                <option>Critical</option>
-                <option>High</option>
-                <option>Moderate</option>
-                <option>Low</option>
-              </select>
-            </label>
+            <SchemaFilters app={app} />
             <ToolbarButtons v={v} n={3} />
           </div>
           <div className="list-head">
@@ -2586,10 +3131,80 @@ function actKind(t: string): ActKind {
   return "details";
 }
 
+/** One labeled control for a real schema field, with the type-appropriate widget + a synthetic
+ * value. This is what makes a dialog read as its own app's form. */
+function DialogField({ field, seed, showPII }: { field: Field; seed: number; showPII: boolean }) {
+  const ctrl = controlFor(field.kind);
+  const opts = optionsFor(field.kind);
+  const val = showPII ? genValue(field.kind, seed) : "";
+  if (ctrl === "checkbox") {
+    return (
+      <label className="dlg-field chk">
+        <input type="checkbox" defaultChecked={seed % 2 === 0} aria-label={field.label} />
+        <span>{field.label}</span>
+      </label>
+    );
+  }
+  return (
+    <label className="dlg-field">
+      <span>{field.label}</span>
+      {ctrl === "radio" && opts ? (
+        <div className="dlg-radios">
+          {opts.slice(0, 4).map((o, i) => (
+            <label className="radio" key={o}>
+              <input type="radio" name={"r" + seed} defaultChecked={i === 0} /> {o}
+            </label>
+          ))}
+        </div>
+      ) : ctrl === "select" && opts ? (
+        <select aria-label={field.label} defaultValue={val}>
+          {opts.map((o) => (
+            <option key={o}>{o}</option>
+          ))}
+        </select>
+      ) : field.kind === "desc" ? (
+        <textarea aria-label={field.label} defaultValue={val} />
+      ) : (
+        <input
+          type={ctrl === "date" ? "date" : ctrl === "number" ? "number" : ctrl === "email" ? "email" : ctrl === "tel" ? "tel" : "text"}
+          aria-label={field.label}
+          defaultValue={val}
+        />
+      )}
+    </label>
+  );
+}
+
+/** App-specific create/edit form: the launched app's REAL schema fields (not the 40/60 churn mix),
+ * grouped into the app's own sections — so New Wire, Create Incident and New chat are each clearly
+ * their own product. */
+function DialogForm({ app, base, showPII }: { app: AppDef; base: number; showPII: boolean }) {
+  const schema = schemaFor(app.id);
+  const fields = schema.fields.slice(0, 16); // Id + the app's real domain fields (skip generic tail)
+  const half = Math.ceil(fields.length / 2);
+  const groups = [
+    { title: schema.sections[0] || "General", items: fields.slice(0, half) },
+    { title: schema.sections[1] || "Details", items: fields.slice(half) },
+  ];
+  return (
+    <div className="dlg-form">
+      {groups.map((g, gi) => (
+        <fieldset className="dlg-sec" key={gi}>
+          <legend>{g.title}</legend>
+          <div className="dlg-grid">
+            {g.items.map((fld, i) => (
+              <DialogField key={fld.label + gi + i} field={fld} seed={base + gi * 97 + i * 7} showPII={showPII} />
+            ))}
+          </div>
+        </fieldset>
+      ))}
+    </div>
+  );
+}
+
 export function ActionPanel({ app }: { app: AppDef }) {
   const { title } = usePanel();
   const v = useView(app);
-  const cap = capacityOf(app).perView;
   if (!title) return null;
   const kind = actKind(title);
   const base = v.lab(3).base;
@@ -2725,17 +3340,7 @@ export function ActionPanel({ app }: { app: AppDef }) {
     case "create":
     default:
       confirmLabel = kind === "create" ? "Create" : "Save";
-      body = (
-        <CountedAttributes
-          lab={v.lab(3)}
-          valid={Math.min(cap.valid, 24)}
-          invalid={0}
-          appId={v.app.id}
-          showPII={v.showPII}
-          role={v.role}
-          variant="form"
-        />
-      );
+      body = <DialogForm app={app} base={base} showPII={v.showPII} />;
   }
 
   return (
@@ -2765,6 +3370,8 @@ export function ActionPanel({ app }: { app: AppDef }) {
 /* ══════════════ dispatch ══════════════ */
 const BY_ID: Record<string, FC<{ app: AppDef }>> = {
   outlook: MailLayout,
+  calendar: CalendarLayout,
+  timesheet: TimesheetLayout,
   teams: TeamsLayout,
   slack: SlackLayout,
   copilot: CopilotLayout,
@@ -2804,6 +3411,42 @@ const BY_ID: Record<string, FC<{ app: AppDef }>> = {
   capturelab: ScenariosLayout,
 };
 
+// Fallback by KIND so an app not explicitly mapped above still renders the layout that matches what
+// it IS — a forms app looks like a form, an analytics app like a dashboard, a board like a board,
+// an editor like a document — instead of every unmapped app collapsing to the generic records table
+// (which is what made the new apps all look identical).
+const BY_KIND: Record<string, FC<{ app: AppDef }>> = {
+  chat: CopilotLayout,
+  docs: SharePointLayout,
+  records: RecordsLayout,
+  analytics: DashboardLayout,
+  board: BoardLayout,
+  editor: WikiLayout,
+  mail: MailLayout,
+  forms: FormsLayout,
+  cloud: AzureLayout,
+  repo: RepoLayout,
+  ci: CiLayout,
+};
+
+// Line-of-business chrome for records-kind apps in a vertical group (banking, trading, risk,
+// insurance, payments, lending, finance, procurement). Marquee apps mapped in BY_ID keep their own.
+const BY_GROUP: Record<string, FC<{ app: AppDef }>> = {
+  banking: VerticalLayout,
+  invest: VerticalLayout,
+  risk: VerticalLayout,
+  payments: VerticalLayout,
+  insurance: VerticalLayout,
+  lending: VerticalLayout,
+  procure: VerticalLayout,
+  finance: VerticalLayout,
+};
+
 export function getLayout(app: AppDef): FC<{ app: AppDef }> {
-  return BY_ID[app.id] ?? RecordsLayout;
+  return (
+    BY_ID[app.id] ??
+    (app.kind === "records" ? BY_GROUP[app.group] : undefined) ??
+    BY_KIND[app.kind] ??
+    RecordsLayout
+  );
 }

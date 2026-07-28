@@ -48,6 +48,37 @@ const INACTIVITY_MS = 5 * 60_000;
 const MAX_NAVS = 300;
 const MAX_ACTIONS = 4000;
 
+// ── Coverage sampling (runtime-adjustable via apSetCoverage; UI = Autopilot.tsx's Min/Half/Full/
+// Custom control). Two independent dimensions, so a quick smoke run can touch a slice of the estate
+// instead of every element of every app:
+//   actionsPct (X) — each discovered action is PERFORMED with probability X% (uniform per-action
+//                    sampling), yielding ~X% of an app's total actions. A skipped element is still
+//                    marked data-swept by nextUnswept, so the re-scan never revisits it (no loops),
+//                    and a skip is INSTANT (no cadence delay) — so lower coverage also runs faster.
+//   appsPct    (Y) — a random Y% subset of the discovered apps is traversed.
+// Presets: min = 20/20, half = 50/50 (DEFAULT), full = 100/100. Custom = user-supplied X/Y (1..100).
+export type ApCoverage = "min" | "half" | "full" | "custom";
+let coverageMode: ApCoverage = "half";
+let actionsPct = 50; // X — % of total actions per app
+let appsPct = 50; // Y — % of all apps (randomly selected)
+/** True if this action should be performed under the current actions-% coverage. 100% ⇒ always. */
+const shouldAct = () => actionsPct >= 100 || Math.random() * 100 < actionsPct;
+/** Random Y% subset of the discovered apps (kept in registry order for a tidy traversal). */
+function sampleApps(all: string[]): string[] {
+  if (appsPct >= 100 || all.length <= 1) return all;
+  const k = Math.max(1, Math.round((all.length * appsPct) / 100));
+  if (k >= all.length) return all;
+  const idx = all.map((_, i) => i);
+  for (let i = idx.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  return idx
+    .slice(0, k)
+    .sort((a, b) => a - b)
+    .map((i) => all[i]);
+}
+
 // Mirrors the sweep's exclusions: never touch the autopilot bar or the portal's
 // meta-controls; the Home button and tile side-links are driven deliberately, not
 // in the generic sweep (Home is clicked LAST, tiles are the "enter app" trigger).
@@ -58,11 +89,30 @@ let state: ApState = "idle";
 let status = "";
 let progress = 0; // 0–100
 let stopFlag = false;
-let snap: { state: ApState; status: string; progress: number; rate: number } = { state, status, progress, rate: actionsPerSec };
+type ApSnap = {
+  state: ApState;
+  status: string;
+  progress: number;
+  rate: number;
+  coverage: { mode: ApCoverage; actionsPct: number; appsPct: number };
+};
+let snap: ApSnap = {
+  state,
+  status,
+  progress,
+  rate: actionsPerSec,
+  coverage: { mode: coverageMode, actionsPct, appsPct },
+};
 const listeners = new Set<() => void>();
 
 function emit() {
-  snap = { state, status, progress, rate: actionsPerSec };
+  snap = {
+    state,
+    status,
+    progress,
+    rate: actionsPerSec,
+    coverage: { mode: coverageMode, actionsPct, appsPct },
+  };
   listeners.forEach((l) => l());
 }
 export function apSubscribe(cb: () => void): () => void {
@@ -185,6 +235,7 @@ async function typeTextboxes(root: ParentNode, onAction: () => void, stop: () =>
     await gate();
     if (!visible(el) || el.closest(EXCLUDE) || el.hasAttribute("data-swept")) continue;
     el.setAttribute("data-swept", "1");
+    if (!shouldAct()) continue; // coverage: skip (already marked swept) to hit ~X% of actions
     try {
       await clickEl(el); // Phase 2 clicks the textbox first, THEN types into it
       el.focus();
@@ -216,6 +267,7 @@ async function setControls(root: ParentNode, onAction: () => void, stop: () => b
     await gate();
     if (!visible(sel) || sel.closest(EXCLUDE) || sel.hasAttribute("data-swept")) continue;
     sel.setAttribute("data-swept", "1");
+    if (!shouldAct()) continue; // coverage gate
     try {
       if (sel.options.length > 1) {
         realClick(sel);
@@ -233,6 +285,7 @@ async function setControls(root: ParentNode, onAction: () => void, stop: () => b
     await gate();
     if (!visible(cb) || cb.closest(EXCLUDE) || cb.hasAttribute("data-swept")) continue;
     cb.setAttribute("data-swept", "1");
+    if (!shouldAct()) continue; // coverage gate
     try {
       if (!cb.checked) cb.click();
     } catch {
@@ -249,6 +302,7 @@ async function setControls(root: ParentNode, onAction: () => void, stop: () => b
     if (stop()) return;
     await gate();
     grp.forEach((r) => r.setAttribute("data-swept", "1"));
+    if (!shouldAct()) continue; // coverage gate
     try {
       grp[rnd(grp.length)].click();
     } catch {
@@ -374,10 +428,12 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
     }
     const el = nextUnswept(modal, CLOSE_EXCLUDE); // dialog body; close/confirm held back until last
     if (el) {
-      await clickEl(el);
-      onAction();
-      await tick();
-      return true;
+      if (shouldAct()) {
+        await clickEl(el);
+        onAction();
+        await tick();
+      }
+      return true; // el is already marked swept; a skip still advances the dialog toward close
     }
     // Dialog exhausted -> close it, THEN resume the page.
     setStatus(`${appId} · closing dialog`);
@@ -404,6 +460,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
     if (await serviceModal()) continue; // a leaf click may have opened a dialog -> handle it first
     const el = nextUnswept(document.body, "", true);
     if (!el) break;
+    if (!shouldAct()) continue; // coverage: el already marked swept; skip to hit ~X% of actions
     await clickEl(el);
     onAction();
     trackNav();
@@ -427,6 +484,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
     if (await serviceModal()) continue;
     const el = nextUnswept(document.body, "");
     if (!el) break;
+    if (!shouldAct()) continue; // coverage: el already marked swept; skip to hit ~X% of actions
     await clickEl(el);
     onAction();
     trackNav();
@@ -441,7 +499,7 @@ async function run(): Promise<void> {
     navigate("/");
     await tick(500);
 
-    const apps = discoverApps();
+    const apps = sampleApps(discoverApps()); // coverage: traverse a random Y% subset (Y<100)
     if (apps.length === 0) {
       await sweepApp("page", 0, 1);
       setProgress(100);
@@ -516,4 +574,28 @@ export function apSetRate(n: number): void {
 }
 export function apGetRate(): number {
   return actionsPerSec;
+}
+/** Set coverage. Presets: min=20/20, half=50/50, full=100/100. custom uses x (actions %) and y
+ * (apps %), each clamped 1..100. Takes effect on the NEXT run (app subset is chosen at run start;
+ * the per-action gate applies immediately, including mid-run). */
+export function apSetCoverage(mode: ApCoverage, x?: number, y?: number): void {
+  coverageMode = mode;
+  const clamp = (n: number) => Math.max(1, Math.min(100, Math.round(n)));
+  if (mode === "min") {
+    actionsPct = 20;
+    appsPct = 20;
+  } else if (mode === "half") {
+    actionsPct = 50;
+    appsPct = 50;
+  } else if (mode === "full") {
+    actionsPct = 100;
+    appsPct = 100;
+  } else {
+    if (typeof x === "number" && isFinite(x)) actionsPct = clamp(x);
+    if (typeof y === "number" && isFinite(y)) appsPct = clamp(y);
+  }
+  emit();
+}
+export function apGetCoverage(): { mode: ApCoverage; actionsPct: number; appsPct: number } {
+  return { mode: coverageMode, actionsPct, appsPct };
 }

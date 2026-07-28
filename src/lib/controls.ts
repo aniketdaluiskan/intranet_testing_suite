@@ -59,24 +59,23 @@ export const SEMANTIC_ATTRS: string[] = [
   "Product Category",
 ];
 
-/** Apps that form the one connected business process (share SEMANTIC_ATTRS). */
+/** PROCESS — the ALWAYS-USED daily drivers every employee touches most days (communication, ITSM,
+ * core docs, work tracking). They form the connected business process and share the session case Id
+ * so activity is case-stitchable across the day's work. */
 export const PROCESS_APPS = [
-  "servicenow",
-  "jira",
-  "sharepoint",
-  "crm",
-  "hrms",
-  "outlook",
-  "excel",
-  "payroll",
-  "insurance",
+  "outlook", "teams", "slack", "copilot", "zoom", "calendar",
+  "servicenow", "sharepoint", "excel", "word", "jira",
 ];
 
-/** Independent "noise" apps (their own taxonomy, no shared vocabulary). */
-export const NOISE_APPS = ["tableau", "monitoring", "jenkins"];
+/** NON-PROCESS — SOMETIMES-USED apps: periodic or role-specific but common across the org (HR runs,
+ * filings, approvals, e-sign, occasional docs & dashboards). Formerly the "noise" bucket. */
+export const NONPROCESS_APPS = [
+  "payroll", "hrms", "workday", "concur", "benefits", "timesheet", "performance", "recruiting", "lms",
+  "docusign", "forms", "powerpoint", "onenote", "notion", "wiki", "drive", "zendesk", "tableau", "powerbi",
+];
 
-export function appRole(appId: string): "process" | "noise" | "extra" {
+export function appRole(appId: string): "process" | "nonprocess" | "extra" {
   if (PROCESS_APPS.includes(appId)) return "process";
-  if (NOISE_APPS.includes(appId)) return "noise";
-  return "extra";
+  if (NONPROCESS_APPS.includes(appId)) return "nonprocess";
+  return "extra"; // everything else — the domain / line-of-business & specialized apps
 }

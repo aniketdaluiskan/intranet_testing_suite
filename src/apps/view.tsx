@@ -28,7 +28,7 @@ export function accentVar(c: string): CSSProperties {
 export interface View {
   app: AppDef;
   tick: number;
-  role: "process" | "noise" | "extra";
+  role: "process" | "nonprocess" | "extra";
   showPII: boolean;
   accent: string;
   viewName: string;
@@ -71,6 +71,25 @@ export function useView(app: AppDef): View {
   useEffect(() => {
     document.title = `${viewName} · ${app.name} — Acme`;
   }, [viewName, app.name]);
+
+  // A fresh, app-relatable page title on EVERY click, anywhere. Safe to do per click (unlike DOM
+  // churn): it only writes document.title — no React re-render, no re-mount — so it never wipes the
+  // sweep's data-swept marks. The fragment is drawn from THIS app's own sections/actions so it
+  // stays relatable to the launched app (e.g. "Create Incident · ServiceNow — Acme").
+  useEffect(() => {
+    const s = schemaFor(app.id);
+    const pool = [...s.sections, ...s.actions].filter(Boolean);
+    if (pool.length === 0) return;
+    let last = "";
+    const onClick = () => {
+      let frag = pool[(Math.random() * pool.length) | 0];
+      if (pool.length > 1 && frag === last) frag = pool[(pool.indexOf(frag) + 1) % pool.length];
+      last = frag;
+      document.title = `${frag} · ${app.name} — Acme`;
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [app.id, app.name]);
 
   const saltBase = hashStr(app.id) % 100000;
   const schema = schemaFor(app.id);

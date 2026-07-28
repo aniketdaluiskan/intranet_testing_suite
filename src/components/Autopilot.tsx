@@ -1,50 +1,157 @@
-import { useSyncExternalStore } from "react";
-import { apSubscribe, apSnapshot, apPlay, apPause, apStop, apSetRate } from "../autopilot";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  apSubscribe,
+  apSnapshot,
+  apPlay,
+  apPause,
+  apStop,
+  apSetRate,
+  apSetCoverage,
+  type ApCoverage,
+} from "../autopilot";
+import { useStore } from "../store";
 
-/** Top-left play / pause / stop control for the in-page autopilot. */
+// Coverage presets. The tooltip text is the exact spec: what each mode does to actions-per-app and
+// apps-traversed. "Custom" lets the user set X (actions %) and Y (apps %) directly.
+const COVERAGE_MODES: { id: ApCoverage; label: string; tip: string }[] = [
+  { id: "min", label: "Min", tip: "20% of total actions per app on 20% of all apps (randomly selected)" },
+  { id: "half", label: "Half", tip: "50% of total actions per app on 50% of all apps (randomly selected)" },
+  { id: "full", label: "Full", tip: "100% of total actions per app on 100% of all apps" },
+  { id: "custom", label: "Custom", tip: "X% of total actions per app on Y% of all apps (randomly selected)" },
+];
+
+/** Floating autopilot control: a small pill (settings toggle · state chip · play/pause/stop) that
+ * expands into a settings panel for speed (actions/sec) and coverage (Min / Half / Full / Custom). */
 export default function Autopilot() {
   const s = useSyncExternalStore(apSubscribe, apSnapshot, apSnapshot);
+  const { settings, setSettings } = useStore();
+  const [open, setOpen] = useState(false);
+  const cov = s.coverage;
+  // When the autopilot is active, force "Auto-rotate labels while idle" OFF: the idle re-roll
+  // remounts churn-keyed views and wipes the sweep's `data-swept` marks, breaking convergence
+  // (see store.tsx). Re-applies if it's toggled back on mid-run.
+  useEffect(() => {
+    if (s.state !== "idle" && settings.churnMs > 0) setSettings({ churnMs: 0 });
+  }, [s.state, settings.churnMs, setSettings]);
+  const running = s.state !== "idle";
+  const covLabel =
+    cov.mode === "custom" ? `${cov.actionsPct}/${cov.appsPct}` : cov.mode.charAt(0).toUpperCase() + cov.mode.slice(1);
+  const covHint =
+    cov.mode === "full"
+      ? "Every action on every app."
+      : `~${cov.actionsPct}% of actions on a random ${cov.appsPct}% of apps.`;
+
   return (
-    <div className="autopilot-bar" data-ap-control="1">
-      <label
-        className="ap-speed"
-        title={
-          "Actions per second (1–20, default 5). High values are best-effort: browsers clamp timers " +
-          "to ~4 ms and churn-heavy pages re-render on each action, so 20/sec is a ceiling, not a " +
-          "guarantee — sustaining it needs a perf/config update."
-        }
-      >
-        <span className="ap-speed-x">⚡</span>
-        <input
-          type="number"
-          min={1}
-          max={20}
-          step={1}
-          value={s.rate}
-          onChange={(e) => apSetRate(Number(e.target.value))}
-        />
-        <span className="ap-speed-u">/s</span>
-      </label>
-      {s.state !== "idle" && (
-        <span className="ap-progress" title="Sweep progress">
-          {s.progress}%
-        </span>
+    <div className="autopilot" data-ap-control="1">
+      {open && (
+        <div className="ap-panel" role="group" aria-label="Autopilot settings">
+          <div className="ap-panel-hd">
+            <span>Autopilot</span>
+            <button className="ap-x" title="Close" onClick={() => setOpen(false)}>
+              ✕
+            </button>
+          </div>
+
+          <div className="ap-field">
+            <span className="ap-field-l" title="Actions per second (1–20, default 5). High values are best-effort.">
+              Speed
+            </span>
+            <span className="ap-num">
+              <input
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                value={s.rate}
+                onChange={(e) => apSetRate(Number(e.target.value))}
+              />
+              <em>/s</em>
+            </span>
+          </div>
+
+          <div className="ap-field">
+            <span className="ap-field-l">Coverage</span>
+            <div className="ap-seg">
+              {COVERAGE_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={cov.mode === m.id ? "on" : ""}
+                  title={m.tip}
+                  aria-pressed={cov.mode === m.id}
+                  onClick={() => apSetCoverage(m.id)}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {cov.mode === "custom" && (
+            <div className="ap-field ap-field-custom">
+              <span className="ap-num" title="X — % of total actions performed per app (1–100)">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={cov.actionsPct}
+                  onChange={(e) => apSetCoverage("custom", Number(e.target.value), cov.appsPct)}
+                />
+                <em>% act</em>
+              </span>
+              <span className="ap-num" title="Y — % of all apps traversed, randomly selected (1–100)">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={cov.appsPct}
+                  onChange={(e) => apSetCoverage("custom", cov.actionsPct, Number(e.target.value))}
+                />
+                <em>% apps</em>
+              </span>
+            </div>
+          )}
+
+          <p className="ap-hint">{covHint}</p>
+          {running && s.status && <div className="ap-status-line">{s.status}</div>}
+        </div>
       )}
-      {s.state === "running" ? (
-        <button className="ap-btn" title="Pause" onClick={apPause}>
-          ⏸
+
+      <div className="ap-bar">
+        <button
+          className={"ap-gear" + (open ? " on" : "")}
+          title="Autopilot settings"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          ⚙
         </button>
-      ) : (
-        <button className="ap-btn play" title={s.state === "paused" ? "Resume" : "Play"} onClick={apPlay}>
-          ▶
-        </button>
-      )}
-      {s.state !== "idle" && (
-        <button className="ap-btn stop" title="Stop" onClick={apStop}>
-          ⏹
-        </button>
-      )}
-      {s.status && <span className="ap-status">{s.status}</span>}
+        {running ? (
+          <span className="ap-progress" title={s.status || "Sweep progress"}>
+            {s.progress}%
+          </span>
+        ) : (
+          <span className="ap-chip" title={"Coverage: " + covHint} onClick={() => setOpen(true)}>
+            {covLabel}
+          </span>
+        )}
+        {s.state === "running" ? (
+          <button className="ap-btn" title="Pause" onClick={apPause}>
+            ⏸
+          </button>
+        ) : (
+          <button className="ap-btn play" title={s.state === "paused" ? "Resume" : "Play"} onClick={apPlay}>
+            ▶
+          </button>
+        )}
+        {running && (
+          <button className="ap-btn stop" title="Stop" onClick={apStop}>
+            ⏹
+          </button>
+        )}
+      </div>
     </div>
   );
 }

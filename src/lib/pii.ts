@@ -100,7 +100,9 @@ export function piiByIndex(i: number, seed: number): string {
 
 /* ── typed business values (so a field's value matches its meaning) ── */
 const STATUSES = [
-  "Open", "In Progress", "On Hold", "Pending Review", "Resolved", "Closed", "Approved", "Rejected", "Draft", "Submitted",
+  "Open", "In Progress", "On Hold", "Pending Review", "Awaiting Approval", "Escalated", "Resolved",
+  "Closed", "Approved", "Rejected", "Declined", "Draft", "Submitted", "Cancelled", "Completed",
+  "Active", "Suspended", "Under Review", "Settled", "Funded",
 ];
 const PRIORITIES = ["Critical", "High", "Moderate", "Low"];
 const DEPARTMENTS = [

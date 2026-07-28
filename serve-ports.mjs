@@ -21,8 +21,13 @@ if (!existsSync(DIST)) {
   process.exit(1);
 }
 
-// ordered app ids, parsed from the registry so ports never drift
-const ids = [...readFileSync(REG, "utf8").matchAll(/\{\s*id:\s*"([^"]+)"/g)].map((m) => m[1]);
+// Ordered app ids, parsed from the APPS array so ports never drift. Scope to the APPS block first:
+// the registry's GROUPS list also has `{ id: "..." }` entries, and matching the whole file would
+// leak those 15 function-group ids in as fake sub-apps.
+const REG_SRC = readFileSync(REG, "utf8");
+const APPS_START = REG_SRC.indexOf("export const APPS");
+const APPS_BLOCK = REG_SRC.slice(APPS_START, REG_SRC.indexOf("];", APPS_START));
+const ids = [...APPS_BLOCK.matchAll(/\{\s*id:\s*"([^"]+)"/g)].map((m) => m[1]);
 
 const PORTAL = 5173;
 // index.html with the multi-port flag injected → app opens sub-apps on their ports

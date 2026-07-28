@@ -31,12 +31,16 @@ export interface Settings {
   sessionTag: string;
   churnMs: number; // 0 = only churn on navigation; >0 = also rotate every churnMs
   showPII: boolean;
+  theme: "light" | "dark";
+  density: "comfortable" | "compact";
+  highlightFields: boolean; // outline every capturable field + hover its kind·label·validity
 }
 
 interface Store {
   settings: Settings;
   setSettings: (patch: Partial<Settings>) => void;
   timerGen: number;
+  tickAt: number; // when the current auto-rotate countdown cycle started (0 if not rotating)
 }
 
 const StoreCtx = createContext<Store | null>(null);
@@ -71,8 +75,13 @@ export function AppStore({ children }: { children: ReactNode }) {
     sessionTag: getSessionId(),
     churnMs: 0,
     showPII: true,
+    theme: "light",
+    density: "comfortable",
+    highlightFields: false,
   });
   const [timerGen, setTimerGen] = useState(0);
+  // Timestamp the current auto-rotate countdown cycle began — drives the top-right refresh timer.
+  const [tickAt, setTickAt] = useState<number>(() => Date.now());
 
   const setSettings = useCallback((patch: Partial<Settings>) => {
     setSettingsState((prev) => {
@@ -84,16 +93,27 @@ export function AppStore({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (settings.churnMs <= 0) return;
-    const id = setInterval(
-      () => setTimerGen((g) => (g + 1) >>> 0),
-      Math.max(200, settings.churnMs),
-    );
+    setTickAt(Date.now()); // countdown starts now
+    const id = setInterval(() => {
+      setTimerGen((g) => (g + 1) >>> 0);
+      setTickAt(Date.now()); // each rotation restarts the countdown
+    }, Math.max(200, settings.churnMs));
     return () => clearInterval(id);
   }, [settings.churnMs]);
 
+  // Theme / density / capturable-field highlight are pure attributes on <html> — CSS does the rest,
+  // so they never touch the DOM the sweep walks (fully sweep-safe).
+  useEffect(() => {
+    const el = document.documentElement;
+    el.setAttribute("data-theme", settings.theme);
+    el.setAttribute("data-density", settings.density);
+    if (settings.highlightFields) el.setAttribute("data-hl", "1");
+    else el.removeAttribute("data-hl");
+  }, [settings.theme, settings.density, settings.highlightFields]);
+
   const value = useMemo<Store>(
-    () => ({ settings, setSettings, timerGen }),
-    [settings, setSettings, timerGen],
+    () => ({ settings, setSettings, timerGen, tickAt }),
+    [settings, setSettings, timerGen, tickAt],
   );
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }

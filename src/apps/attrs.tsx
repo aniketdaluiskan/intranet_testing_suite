@@ -5,6 +5,7 @@ import { genValue, controlFor, optionsFor, type ValueKind } from "../lib/pii";
 import { pii } from "../lib/pii";
 import { CONTROL_WORDS } from "../lib/controls";
 import { schemaFor, commonIdValue } from "../lib/schemas";
+import { sharedEntity } from "../lib/entities";
 import { useSelection } from "./view";
 
 /**
@@ -106,7 +107,7 @@ function CellControl({ item }: { item: Item }) {
   const opts = optionsFor(item.kind);
   if (opts) {
     return (
-      <select {...c} defaultValue={item.value}>
+      <select {...c} defaultValue={item.value} data-cap="valid" data-kind={item.kind} data-label={item.label}>
         {opts.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -115,7 +116,7 @@ function CellControl({ item }: { item: Item }) {
       </select>
     );
   }
-  return <input {...c} type="text" defaultValue={item.value} />;
+  return <input {...c} type="text" defaultValue={item.value} data-cap="valid" data-kind={item.kind} data-label={item.label} />;
 }
 
 /* ── a fully-labelled field group (label[for] / fieldset+legend / wrapped checkbox) ── */
@@ -123,7 +124,7 @@ function FieldControl({ item }: { item: Item }) {
   const ctrl = controlFor(item.kind);
   if (ctrl === "checkbox") {
     return (
-      <label className="fc chk">
+      <label className="fc chk" data-cap="valid" data-kind={item.kind} data-label={item.label}>
         <input id={item.id} name={item.name} type="checkbox" defaultChecked={item.value === "Yes"} />{" "}
         {item.label}
       </label>
@@ -132,7 +133,7 @@ function FieldControl({ item }: { item: Item }) {
   if (ctrl === "radio") {
     const opts = optionsFor(item.kind) || [];
     return (
-      <fieldset className="fc radios">
+      <fieldset className="fc radios" data-cap="valid" data-kind={item.kind} data-label={item.label}>
         <legend>{item.label}</legend>
         {opts.map((o) => (
           <label key={o} className="radio">
@@ -143,7 +144,7 @@ function FieldControl({ item }: { item: Item }) {
     );
   }
   return (
-    <div className="fc">
+    <div className="fc" data-cap="valid" data-kind={item.kind} data-label={item.label}>
       <label htmlFor={item.id}>{item.label}</label>
       <ControlOnly item={item} />
     </div>
@@ -177,7 +178,15 @@ function buildItems(base: number, valid: number, showPII: boolean, appId: string
     const { label, kind } = slotField(appId, k, base);
     const i = 2000 + k;
     const filled = showPII && (STABLE_FILLED.has(label) || (k + base) % 2 === 0);
-    const value = filled ? genValue(kind, base + i) : ""; // values always regenerate with the churn base
+    // Name/email draw from the session-stable cross-app roster so the same people recur across apps
+    // (entity-resolution surface); every other kind regenerates with the churn base.
+    const value = filled
+      ? kind === "name"
+        ? sharedEntity(k).name
+        : kind === "email"
+          ? sharedEntity(k).email
+          : genValue(kind, base + i)
+      : "";
     out.push({ label, value, id: elId(base, i, "f"), name: elName(base, i), kind });
   }
   return out;
@@ -188,34 +197,35 @@ export function InvalidZone({ count }: { count: number }) {
     <ul className="invalid-zone" title="non-value controls (control-type misID)">
       {Array.from({ length: count }, (_, i) => {
         const w = CONTROL_WORDS[i % CONTROL_WORDS.length];
+        const cap = { "data-cap": "invalid", "data-kind": "misID", "data-label": w } as const;
         switch (i % 5) {
           case 0:
             return (
-              <button key={i} className="misid">
+              <button key={i} className="misid" {...cap}>
                 {w}
               </button>
             );
           case 1:
             return (
-              <strong key={i} className="misid">
+              <strong key={i} className="misid" {...cap}>
                 {w}
               </strong>
             );
           case 2:
             return (
-              <span key={i} className="misid" role="columnheader">
+              <span key={i} className="misid" role="columnheader" {...cap}>
                 {w}
               </span>
             );
           case 3:
             return (
-              <li key={i} className="misid" role="menuitem">
+              <li key={i} className="misid" role="menuitem" {...cap}>
                 {w}
               </li>
             );
           default:
             return (
-              <a key={i} className="misid" href="#" onClick={(e) => e.preventDefault()}>
+              <a key={i} className="misid" href="#" onClick={(e) => e.preventDefault()} {...cap}>
                 {w}
               </a>
             );
@@ -246,7 +256,7 @@ export function CountedAttributes({
   valid: number;
   invalid: number;
   showPII: boolean;
-  role?: "process" | "noise" | "extra";
+  role?: "process" | "nonprocess" | "extra";
   variant?: AttrVariant;
   select?: boolean;
 }) {
@@ -308,7 +318,7 @@ export function CountedAttributes({
                     const val = filled ? genValue(c.kind, lab.base + 3000 + k) : "";
                     const num = c.kind === "money" || c.kind === "percent" || c.kind === "count";
                     return (
-                      <td key={ci} className={num ? "num" : ""}>
+                      <td key={ci} className={num ? "num" : ""} data-cap="valid" data-kind={c.kind} data-label={c.label}>
                         {cellContent(c.kind, val)}
                       </td>
                     );
@@ -383,36 +393,53 @@ export function CountedAttributes({
 
     /* ── spreadsheet grid (Excel) ── */
     case "cells": {
-      const COLS = 12;
-      const letters = Array.from({ length: COLS }, (_, i) => String.fromCharCode(65 + i));
-      const rows: Item[][] = [];
-      for (let i = 0; i < items.length; i += COLS) rows.push(items.slice(i, i + COLS));
+      // A real spreadsheet is wide and tall with data in the top-left and empty cells beyond. COLS
+      // sets the visible columns (A..); the populated `items` fill row-major, then the grid is padded
+      // with authentic EMPTY cells down to ROWS. Empty cells add grid size (what "more rows/columns"
+      // means) WITHOUT adding typed fields — only the populated cells are real inputs to capture.
+      const COLS = 20;
+      const colName = (i: number) => {
+        let n = i + 1;
+        let s = "";
+        while (n > 0) {
+          const m = (n - 1) % 26;
+          s = String.fromCharCode(65 + m) + s;
+          n = Math.floor((n - 1) / 26);
+        }
+        return s;
+      };
+      const dataRows = Math.ceil(items.length / COLS);
+      const ROWS = Math.max(dataRows + 6, 28); // always leave an empty tail so it reads like a real sheet
       body = (
         <div className="sheet-scroll">
           <table className="v-cells">
             <thead>
               <tr>
                 <th className="corner" scope="col"></th>
-                {letters.map((l) => (
-                  <th key={l} className="collet" scope="col">
-                    {l}
+                {Array.from({ length: COLS }, (_, c) => (
+                  <th key={c} className="collet" scope="col">
+                    {colName(c)}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, r) => (
+              {Array.from({ length: ROWS }, (_, r) => (
                 <tr key={r}>
                   <th className="rownum" scope="row">
                     {r + 1}
                   </th>
-                  {row.map((it) => (
-                    <td key={it.id}>
-                      <CellControl item={it} />
-                    </td>
-                  ))}
-                  {row.length < COLS &&
-                    Array.from({ length: COLS - row.length }, (_, k) => <td key={"pad" + k} />)}
+                  {Array.from({ length: COLS }, (_, c) => {
+                    const idx = r * COLS + c;
+                    const it = idx < items.length ? items[idx] : null;
+                    return it ? (
+                      <td key={it.id}>
+                        <CellControl item={it} />
+                      </td>
+                    ) : (
+                      <td key={"e" + r + "-" + c} className="v-cell-e" />
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
