@@ -31,9 +31,8 @@ export interface Settings {
   sessionTag: string;
   churnMs: number; // 0 = only churn on navigation; >0 = also rotate every churnMs
   showPII: boolean;
-  theme: "light" | "dark";
   density: "comfortable" | "compact";
-  highlightFields: boolean; // outline every capturable field + hover its kind·label·validity
+  rotateSecs: number; // auto-rotate interval in seconds (user-editable; default 5)
 }
 
 interface Store {
@@ -75,9 +74,8 @@ export function AppStore({ children }: { children: ReactNode }) {
     sessionTag: getSessionId(),
     churnMs: 0,
     showPII: true,
-    theme: "light",
-    density: "comfortable",
-    highlightFields: false,
+    density: "compact", // UI runs compact by default
+    rotateSecs: 5,
   });
   const [timerGen, setTimerGen] = useState(0);
   // Timestamp the current auto-rotate countdown cycle began — drives the top-right refresh timer.
@@ -101,15 +99,11 @@ export function AppStore({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, [settings.churnMs]);
 
-  // Theme / density / capturable-field highlight are pure attributes on <html> — CSS does the rest,
-  // so they never touch the DOM the sweep walks (fully sweep-safe).
+  // Density is a pure attribute on <html> — CSS does the rest, so it never touches the DOM the sweep
+  // walks (sweep-safe). The UI runs compact by default.
   useEffect(() => {
-    const el = document.documentElement;
-    el.setAttribute("data-theme", settings.theme);
-    el.setAttribute("data-density", settings.density);
-    if (settings.highlightFields) el.setAttribute("data-hl", "1");
-    else el.removeAttribute("data-hl");
-  }, [settings.theme, settings.density, settings.highlightFields]);
+    document.documentElement.setAttribute("data-density", settings.density);
+  }, [settings.density]);
 
   const value = useMemo<Store>(
     () => ({ settings, setSettings, timerGen, tickAt }),

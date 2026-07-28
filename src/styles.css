@@ -14,29 +14,7 @@ button { font-family: inherit; cursor: pointer; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85em; }
 a { color: var(--accent); }
 
-/* ── Dark theme (data-theme="dark" on <html>) ── */
-[data-theme="dark"] {
-  --bg: #0b0f17; --panel: #151b26; --ink: #e6e9ef; --muted: #93a1b5; --line: #263244; --accent: #60a5fa; --invalid: #f87171;
-}
-[data-theme="dark"] .app-tile,
-[data-theme="dark"] .cal-cell,
-[data-theme="dark"] .ts-task,
-[data-theme="dark"] .cal-main,
-[data-theme="dark"] .v-cells td.v-cell-e { background: var(--panel); }
-[data-theme="dark"] .app-tile:hover,
-[data-theme="dark"] .cal-cell:hover { background: #1b2433; }
-[data-theme="dark"] .cal-cell.out { background: #10151f; }
-[data-theme="dark"] .cal-num, [data-theme="dark"] .ts-task-n, [data-theme="dark"] .ts-h,
-[data-theme="dark"] .cap-total, [data-theme="dark"] .mini-day, [data-theme="dark"] .cal-side, [data-theme="dark"] .ts-side { color: var(--ink); }
-[data-theme="dark"] .cal-ev { background: #1b2433; color: var(--ink); }
-[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
-  background: #0f1620; color: var(--ink); border-color: var(--line);
-}
-[data-theme="dark"] .v-cells thead th, [data-theme="dark"] .v-cells .rownum, [data-theme="dark"] .v-cells .corner,
-[data-theme="dark"] .ts-grid thead th, [data-theme="dark"] .rec-grid thead th { background: #10151f; color: var(--muted); }
-[data-theme="dark"] .group-count, [data-theme="dark"] .user-chip, [data-theme="dark"] .portal-search { background: var(--panel); color: var(--ink); }
-
-/* ── Compact density (data-density="compact" on <html>) ── */
+/* ── Compact density (data-density="compact" on <html>) — the UI default ── */
 [data-density="compact"] { font-size: 14px; }
 [data-density="compact"] .app-tile { padding: 12px; gap: 8px; }
 [data-density="compact"] .app-grid { gap: 12px; }
@@ -48,11 +26,6 @@ a { color: var(--accent); }
 [data-density="compact"] .cal-cell { min-height: 62px; }
 [data-density="compact"] .form-sec-grid { gap: 8px 12px; }
 [data-density="compact"] .fc input, [data-density="compact"] .fc select { padding: 4px 6px; }
-
-/* ── Highlight capturable fields (data-hl="1" on <html>) ── */
-html[data-hl="1"] [data-cap] { outline: 1px dashed rgba(37,99,235,.55); outline-offset: 1px; }
-html[data-hl="1"] [data-cap="invalid"] { outline-color: rgba(209,67,67,.75); }
-.cap-tip { position: fixed; z-index: 100001; background: #111827; color: #fff; font-size: 10.5px; padding: 3px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; box-shadow: 0 3px 10px rgba(0,0,0,.35); }
 
 /* ── ⌘K command palette ── */
 .cmdk-scrim { position: fixed; inset: 0; background: rgba(15,23,42,.42); z-index: 100002; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; }
@@ -87,6 +60,9 @@ html[data-hl="1"] [data-cap="invalid"] { outline-color: rgba(209,67,67,.75); }
 }
 .pc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 22px; }
 .pc-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-top: 9px; border-top: 1px solid var(--line); }
+.pc-secs { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.pc-secs input { width: 46px; height: 26px; border: 1px solid var(--line); border-radius: 6px; text-align: center; font-size: 13px; padding: 0 4px; -moz-appearance: textfield; appearance: textfield; }
+.pc-secs-u { font-size: 11px; color: var(--muted); }
 .portal-controls label { display: flex; align-items: center; gap: 6px; }
 .portal-controls input[type="text"], .portal-controls label > input:not([type="checkbox"]) {
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;

@@ -4,7 +4,6 @@ import AppRoute from "./pages/AppRoute";
 import Autopilot from "./components/Autopilot";
 import RefreshTimer from "./components/RefreshTimer";
 import CommandPalette from "./components/CommandPalette";
-import FieldHighlight from "./components/FieldHighlight";
 
 export default function App() {
   return (
@@ -12,7 +11,6 @@ export default function App() {
       <Autopilot />
       <RefreshTimer />
       <CommandPalette />
-      <FieldHighlight />
       <Routes>
         <Route path="/" element={<Portal />} />
         <Route path="/:appId/*" element={<AppRoute />} />

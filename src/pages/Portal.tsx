@@ -78,49 +78,28 @@ export default function Portal() {
             <input
               type="checkbox"
               role="switch"
-              checked={settings.highlightFields}
-              onChange={(e) => setSettings({ highlightFields: e.target.checked })}
-            />
-            <span className="toggle-track" aria-hidden="true">
-              <span className="toggle-knob" />
-            </span>
-            <span className="toggle-label">Highlight fields</span>
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              role="switch"
-              checked={settings.theme === "dark"}
-              onChange={(e) => setSettings({ theme: e.target.checked ? "dark" : "light" })}
-            />
-            <span className="toggle-track" aria-hidden="true">
-              <span className="toggle-knob" />
-            </span>
-            <span className="toggle-label">Dark mode</span>
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              role="switch"
-              checked={settings.density === "compact"}
-              onChange={(e) => setSettings({ density: e.target.checked ? "compact" : "comfortable" })}
-            />
-            <span className="toggle-track" aria-hidden="true">
-              <span className="toggle-knob" />
-            </span>
-            <span className="toggle-label">Compact</span>
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              role="switch"
               checked={settings.churnMs > 0}
-              onChange={(e) => setSettings({ churnMs: e.target.checked ? 10000 : 0 })}
+              onChange={(e) => setSettings({ churnMs: e.target.checked ? settings.rotateSecs * 1000 : 0 })}
             />
             <span className="toggle-track" aria-hidden="true">
               <span className="toggle-knob" />
             </span>
             <span className="toggle-label">Auto-rotate labels while idle</span>
+          </label>
+          <label className="pc-secs" title="Auto-rotate interval (seconds)">
+            <input
+              type="number"
+              min={1}
+              max={3600}
+              step={1}
+              value={settings.rotateSecs}
+              onChange={(e) => {
+                const s = Math.max(1, Math.min(3600, Math.round(Number(e.target.value) || 1)));
+                setSettings({ rotateSecs: s, churnMs: settings.churnMs > 0 ? s * 1000 : 0 });
+              }}
+              aria-label="Auto-rotate interval in seconds"
+            />
+            <span className="pc-secs-u">s</span>
           </label>
         </div>
         <div className="pc-meta">
