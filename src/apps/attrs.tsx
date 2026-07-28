@@ -5,7 +5,6 @@ import { genValue, controlFor, optionsFor, type ValueKind } from "../lib/pii";
 import { pii } from "../lib/pii";
 import { CONTROL_WORDS } from "../lib/controls";
 import { schemaFor, commonIdValue } from "../lib/schemas";
-import { sharedEntity } from "../lib/entities";
 import { useSelection } from "./view";
 
 /**
@@ -178,15 +177,8 @@ function buildItems(base: number, valid: number, showPII: boolean, appId: string
     const { label, kind } = slotField(appId, k, base);
     const i = 2000 + k;
     const filled = showPII && (STABLE_FILLED.has(label) || (k + base) % 2 === 0);
-    // Name/email draw from the session-stable cross-app roster so the same people recur across apps
-    // (entity-resolution surface); every other kind regenerates with the churn base.
-    const value = filled
-      ? kind === "name"
-        ? sharedEntity(k).name
-        : kind === "email"
-          ? sharedEntity(k).email
-          : genValue(kind, base + i)
-      : "";
+    // name/email resolve through pii's session roster (lib/pii.ts) so the same people recur across apps.
+    const value = filled ? genValue(kind, base + i) : "";
     out.push({ label, value, id: elId(base, i, "f"), name: elName(base, i), kind });
   }
   return out;

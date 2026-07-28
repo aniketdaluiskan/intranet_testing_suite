@@ -4,6 +4,8 @@
  * the seed advances with the churn tick so values keep changing as you interact.
  */
 
+import { getSessionId } from "../session";
+
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -45,6 +47,25 @@ function digits(rng: () => number, n: number): string {
   return s;
 }
 
+// ── Session-stable person ROSTER: a bounded set of individuals that recur across EVERY app. Any
+// people-seed is folded into ROSTER_COUNT slots; each slot is a fixed name + email + empId for the
+// session (re-derived when the Session tag changes). This is what gives cross-app entity resolution
+// its consistent entities — "Morgan Nakamura" in ServiceNow is the same person in Outlook and CRM.
+const ROSTER_COUNT = 50;
+let _rbCache: { id: string; base: number } | null = null;
+function _rosterBase(): number {
+  const s = getSessionId();
+  if (_rbCache && _rbCache.id === s) return _rbCache.base;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  _rbCache = { id: s, base: h >>> 0 };
+  return _rbCache.base;
+}
+function _rosterSeed(seed: number): number {
+  const idx = (((seed >>> 0) % ROSTER_COUNT) + ROSTER_COUNT) % ROSTER_COUNT;
+  return (_rosterBase() + idx * 0x9e3779b1) >>> 0;
+}
+
 export type PIIKind =
   | "name"
   | "email"
@@ -59,19 +80,22 @@ export type PIIKind =
 
 export function pii(kind: PIIKind, seed: number): string {
   const rng = mulberry32(seed >>> 0);
-  const first = pick(rng, FIRST);
-  const last = pick(rng, LAST);
+  // People (name/email/empId) resolve to the bounded, session-stable roster so the same individuals
+  // recur across every app; name/email/empId derived from one seed describe one roster person.
+  const prng = mulberry32(_rosterSeed(seed));
+  const first = pick(prng, FIRST);
+  const last = pick(prng, LAST);
   switch (kind) {
     case "name":
       return `${first} ${last}`;
     case "email":
-      return `${first.toLowerCase()}.${last.toLowerCase()}@${pick(rng, DOMAINS)}`;
+      return `${first.toLowerCase()}.${last.toLowerCase()}@${pick(prng, DOMAINS)}`;
     case "phone":
       return `+1-${digits(rng, 3)}-${digits(rng, 3)}-${digits(rng, 4)}`;
     case "ssn":
       return `${digits(rng, 3)}-${digits(rng, 2)}-${digits(rng, 4)}`;
     case "empId":
-      return `EMP-${digits(rng, 6)}`;
+      return `EMP-${digits(prng, 6)}`;
     case "amount":
       return `$${(Math.floor(rng() * 900000) + 1000).toLocaleString("en-US")}.${digits(rng, 2)}`;
     case "date": {
