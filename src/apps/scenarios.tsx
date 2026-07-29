@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FC, type ReactElement } from "react";
+import { useEffect, useRef, useState, type FC, type MouseEvent as ReactMouseEvent } from "react";
 import { accentVar, useActive, useView, type View } from "./view";
 import type { AppDef } from "./registry";
 import { genValue } from "../lib/pii";
 import { schemaFor } from "../lib/schemas";
 import { hostFor } from "../lib/hosts";
+import { multiPort } from "../lib/ports";
 
 /**
  * Capture Lab — advanced DOM-capture edge cases a real capture agent must handle:
@@ -208,41 +209,149 @@ function PostMessageScenario({ v }: { v: View }) {
   );
 }
 
-/* ── Scenario 4: deep / large DOM ── */
-function DeepDom({ v }: { v: View }) {
-  const [depth, setDepth] = useState(25);
-  const fs = schemaFor(v.app.id).fields.filter((f) => !f.shared);
-  function build(d: number): ReactElement | null {
-    if (d <= 0) return null;
-    const f = fs[(depth - d) % fs.length];
-    const id = `deep_${d}`;
-    return (
-      <div className="deep-node">
-        <span className="deep-lvl">L{depth - d + 1}</span>
-        <label htmlFor={id}>{f.label}</label>
-        <input id={id} name={id} defaultValue={genValue(f.kind, d * 3 + 11)} />
-        {build(d - 1)}
+/* ── Scenario 4: cross-origin iframe (opaque origin) ── */
+function CrossOriginScenario({ v }: { v: View }) {
+  const [seed] = useState(rand);
+  const doc =
+    `<!doctype html><html><head><style>${frameCss(v.accent)}</style></head><body>` +
+    `<div class="frame-wrap"><div class="frame-h">Opaque cross-origin frame · sandboxed</div>` +
+    fieldsHtml(v.app.id, seed + 5, 6) +
+    `<div style="font-size:12px;color:#6b7280;margin-top:8px">Parent JS cannot read into this frame (opaque origin).</div>` +
+    `</div></body></html>`;
+  const portal = multiPort() ? `${location.protocol}//${location.hostname}:5173/` : null;
+  return (
+    <div className="lab-scenario">
+      <div className="lab-controls">
+        <span className="lab-note">
+          A <b>cross-origin</b> boundary: this iframe runs in an <b>opaque origin</b> (sandboxed
+          without <code>allow-same-origin</code>), so the parent page — and an in-page capture agent —
+          cannot read into it. A correct agent must treat it as an unreachable / cross-origin frame,
+          not error on it.
+          {portal ? " The second frame targets the portal on :5173 — a real cross-origin under multi-port." : ""}
+        </span>
       </div>
-    );
+      <iframe className="lab-frame" title="Cross-origin (opaque, sandboxed)" sandbox="" srcDoc={doc} />
+      {portal && (
+        <iframe className="lab-frame short" title="Cross-origin (portal :5173)" src={portal} />
+      )}
+    </div>
+  );
+}
+
+/* ── Scenario 5: deep × breadth × size generator (recursion-depth + large-payload limits) ── */
+function buildDeepLarge(
+  root: HTMLElement,
+  appId: string,
+  depth: number,
+  breadth: number,
+  sizeMB: number,
+): { nodes: number; bytes: number } {
+  const fs = schemaFor(appId).fields.filter((f) => !f.shared);
+  root.replaceChildren();
+  // Imperative build (not recursive JSX) so 10k-deep trees don't blow the render stack.
+  let host: HTMLElement = root;
+  let nodes = 0;
+  for (let d = 0; d < depth; d++) {
+    const lvl = document.createElement("div");
+    lvl.className = "deep-node";
+    const tag = document.createElement("span");
+    tag.className = "deep-lvl";
+    tag.textContent = "L" + (d + 1);
+    lvl.appendChild(tag);
+    nodes += 2;
+    for (let b = 0; b < breadth; b++) {
+      const fc = document.createElement("div");
+      fc.className = "deep-fc";
+      const f = fs[(d + b) % fs.length];
+      const lab = document.createElement("label");
+      lab.textContent = f.label;
+      const inp = document.createElement("input");
+      inp.value = genValue(f.kind, d * 7 + b * 3 + 11);
+      inp.setAttribute("aria-label", f.label);
+      fc.appendChild(lab);
+      fc.appendChild(inp);
+      lvl.appendChild(fc);
+      nodes += 3;
+    }
+    host.appendChild(lvl);
+    host = lvl; // nest deeper
   }
+  let bytes = root.innerHTML.length;
+  if (sizeMB > 0) {
+    const target = sizeMB * 1024 * 1024;
+    const chunk = "· screen_text payload filler ".repeat(1500); // ~45 KB per block
+    while (bytes < target) {
+      const p = document.createElement("p");
+      p.className = "deep-fill";
+      p.textContent = chunk;
+      host.appendChild(p);
+      bytes += chunk.length;
+      nodes += 1;
+    }
+  }
+  return { nodes, bytes };
+}
+
+function DeepLargeDom({ v }: { v: View }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [depth, setDepth] = useState(25);
+  const [breadth, setBreadth] = useState(3);
+  const [sizeMB, setSizeMB] = useState(0);
+  const [stat, setStat] = useState<{ nodes: number; bytes: number } | null>(null);
+  const est = depth * (breadth * 3 + 2);
+  const extreme = depth > 200 || breadth > 25 || sizeMB > 2 || est > 12000;
+
+  // Small default build so the pane isn't empty; heavy builds happen only on an explicit Generate.
+  useEffect(() => {
+    if (ref.current) setStat(buildDeepLarge(ref.current, v.app.id, 25, 3, 0));
+  }, [v.app.id]);
+
+  const generate = (e: ReactMouseEvent) => {
+    if (!ref.current) return;
+    if (extreme) {
+      // In-page autopilot events are synthetic (isTrusted=false) -> never builds extreme. Real users
+      // and pyautogui are trusted -> confirm; the Playwright test auto-dismisses (cancels) it, so it
+      // stays safe there too. Only a human clicking OK builds the freeze-level DOM.
+      if (!e.nativeEvent.isTrusted) return;
+      const msg = `This builds a very deep/large DOM (~${est.toLocaleString()} nodes${sizeMB ? `, target ${sizeMB} MB` : ""}) and may freeze the browser. Continue?`;
+      if (!window.confirm(msg)) return;
+    }
+    setStat(buildDeepLarge(ref.current, v.app.id, depth, breadth, sizeMB));
+  };
+
+  const num = (arr: number[]) => arr.map((n) => <option key={n} value={n}>{n.toLocaleString()}</option>);
+  const prettyBytes = (b: number) => (b < 1048576 ? (b / 1024).toFixed(0) + " KB" : (b / 1048576).toFixed(1) + " MB");
+
   return (
     <div className="lab-scenario">
       <div className="lab-controls">
         <label>
-          Nesting depth
-          <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
-            {[10, 25, 50, 80].map((n) => (
-              <option key={n} value={n}>
-                {n} levels
-              </option>
+          Depth
+          <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>{num([10, 25, 50, 100, 200, 1000, 10000])}</select>
+        </label>
+        <label>
+          Breadth
+          <select value={breadth} onChange={(e) => setBreadth(Number(e.target.value))}>{num([1, 3, 5, 10, 25, 50, 100])}</select>
+        </label>
+        <label>
+          Size
+          <select value={sizeMB} onChange={(e) => setSizeMB(Number(e.target.value))}>
+            {[0, 1, 2, 10, 50, 100].map((n) => (
+              <option key={n} value={n}>{n ? n + " MB" : "off"}</option>
             ))}
           </select>
         </label>
+        <button className="tbtn primary" onClick={generate}>
+          Generate
+        </button>
         <span className="lab-note">
-          {depth} levels of nested DOM, each with a label→value field (deep screen-text capture).
+          Depth × breadth × size generator — probes recursion-depth limits and large-payload handling
+          of <code>screen_text</code>.
+          {stat ? ` Built ${stat.nodes.toLocaleString()} nodes · ${prettyBytes(stat.bytes)}.` : ""}
+          {extreme ? <b className="lab-warn"> ⚠ extreme — confirm required</b> : null}
         </span>
       </div>
-      <div className="deep-root">{build(depth)}</div>
+      <div className="deep-root" ref={ref} />
     </div>
   );
 }
@@ -250,7 +359,7 @@ function DeepDom({ v }: { v: View }) {
 export const ScenariosLayout: FC<{ app: AppDef }> = ({ app }) => {
   const v = useView(app);
   const [tab, setTab] = useActive(0);
-  const tabs = ["Nested Iframes", "Shadow DOM", "PostMessage", "Deep DOM"];
+  const tabs = ["Nested Iframes", "Cross-Origin", "Shadow DOM", "PostMessage", "Deep & Large"];
   return (
     <div className="app scenarios" style={accentVar(v.accent)}>
       <header className="app-top" style={{ background: v.accent }}>
@@ -281,9 +390,10 @@ export const ScenariosLayout: FC<{ app: AppDef }> = ({ app }) => {
           shadow root and nested node carries real label→value fields.
         </div>
         {tab === 0 && <NestedIframes v={v} />}
-        {tab === 1 && <ShadowScenario v={v} />}
-        {tab === 2 && <PostMessageScenario v={v} />}
-        {tab === 3 && <DeepDom v={v} />}
+        {tab === 1 && <CrossOriginScenario v={v} />}
+        {tab === 2 && <ShadowScenario v={v} />}
+        {tab === 3 && <PostMessageScenario v={v} />}
+        {tab === 4 && <DeepLargeDom v={v} />}
       </main>
     </div>
   );
