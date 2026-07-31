@@ -6,6 +6,7 @@ import {
   apPause,
   apStop,
   apSetRate,
+  apSetMaxClicks,
   apSetCoverage,
   type ApCoverage,
 } from "../autopilot";
@@ -70,6 +71,25 @@ export default function Autopilot() {
           </div>
 
           <div className="ap-field">
+            <span
+              className="ap-field-l"
+              title="Stop the whole run after this many clicks (0 = no limit). Counts every action, including entering an app and returning Home."
+            >
+              Max clicks
+            </span>
+            <span className="ap-num">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={s.maxClicks}
+                onChange={(e) => apSetMaxClicks(Number(e.target.value))}
+              />
+              <em>{running && s.maxClicks > 0 ? `${s.clicks}/${s.maxClicks}` : s.maxClicks > 0 ? "cap" : "off"}</em>
+            </span>
+          </div>
+
+          <div className="ap-field">
             <span className="ap-field-l">Coverage</span>
             <div className="ap-seg">
               {COVERAGE_MODES.map((m) => (
@@ -129,7 +149,10 @@ export default function Autopilot() {
           ⚙
         </button>
         {running ? (
-          <span className="ap-progress" title={s.status || "Sweep progress"}>
+          <span
+            className="ap-progress"
+            title={(s.status || "Sweep progress") + (s.maxClicks > 0 ? ` · ${s.clicks}/${s.maxClicks} clicks` : "")}
+          >
             {s.progress}%
           </span>
         ) : (

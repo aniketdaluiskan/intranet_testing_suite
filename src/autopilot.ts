@@ -48,6 +48,19 @@ const INACTIVITY_MS = 5 * 60_000;
 const MAX_NAVS = 300;
 const MAX_ACTIONS = 4000;
 
+// ── Optional GLOBAL click budget (run-wide) — distinct from the per-app MAX_ACTIONS backstop above.
+// 0 = unlimited (DEFAULT: a full run, unchanged behavior). When > 0, the ENTIRE run ends as soon as
+// the total number of performed actions reaches it, mid-app if necessary. "Actions" counts every
+// onAction (non-interactive leaf / interactive element click, typed field, select / checkbox / radio,
+// dialog step) PLUS each app-enter and return-home navigation click — i.e. every click the autopilot
+// performs, matching the e2e test's summary.total() (E2E_MAX_CLICKS). Coverage-skipped elements are
+// NOT counted (only performed actions are). Set at runtime via apSetMaxClicks(); the running total
+// resets at the start of each run. Takes effect immediately, including mid-run: the moment the budget
+// is hit, the per-app stop() trips and run() ends without opening another app.
+let maxActions = 0; // configured budget; 0 = no cap (default)
+let totalActions = 0; // performed actions so far in the CURRENT run (reset each run)
+const budgetHit = () => maxActions > 0 && totalActions >= maxActions;
+
 // ── Coverage sampling (runtime-adjustable via apSetCoverage; UI = Autopilot.tsx's Min/Half/Full/
 // Custom control). Two independent dimensions, so a quick smoke run can touch a slice of the estate
 // instead of every element of every app:
@@ -95,6 +108,8 @@ type ApSnap = {
   progress: number;
   rate: number;
   coverage: { mode: ApCoverage; actionsPct: number; appsPct: number };
+  maxClicks: number; // configured run-wide click budget (0 = no cap)
+  clicks: number; // performed actions so far this run (for a live clicks/max readout)
 };
 let snap: ApSnap = {
   state,
@@ -102,6 +117,8 @@ let snap: ApSnap = {
   progress,
   rate: actionsPerSec,
   coverage: { mode: coverageMode, actionsPct, appsPct },
+  maxClicks: maxActions,
+  clicks: totalActions,
 };
 const listeners = new Set<() => void>();
 
@@ -112,6 +129,8 @@ function emit() {
     progress,
     rate: actionsPerSec,
     coverage: { mode: coverageMode, actionsPct, appsPct },
+    maxClicks: maxActions,
+    clicks: totalActions,
   };
   listeners.forEach((l) => l());
 }
@@ -395,6 +414,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
   const onAction = () => {
     lastAction = Date.now();
     actions++;
+    totalActions++; // run-wide budget counter (see maxActions / budgetHit)
     setProgress(((appIdx + Math.min(0.95, actions / 500)) / total) * 100);
   };
   // Count a navigation whenever the URL changes (path OR query). Churn mints a fresh rec-id URL on
@@ -409,7 +429,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
   // No fixed element cap -- an app exhausts naturally. Bail only on a genuine STALL, or a clear LOOP:
   // too many navigations (MAX_NAVS), or a high total-action backstop (MAX_ACTIONS) for same-URL churn.
   const stop = () =>
-    Date.now() - lastAction > INACTIVITY_MS || navCount > MAX_NAVS || actions > MAX_ACTIONS;
+    budgetHit() || Date.now() - lastAction > INACTIVITY_MS || navCount > MAX_NAVS || actions > MAX_ACTIONS;
 
   // MODAL-FIRST: ANY interaction can open a dialog -- even a phase-1 leaf click that bubbles up to a
   // card/button. Whenever one is open we interact ONLY inside it (type its fields, set its controls,
@@ -494,6 +514,7 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
 
 async function run(): Promise<void> {
   try {
+    totalActions = 0; // fresh run-wide click budget counter
     setProgress(0);
     setStatus("Opening portal");
     navigate("/");
@@ -506,6 +527,7 @@ async function run(): Promise<void> {
     } else {
       for (let i = 0; i < apps.length; i++) {
         await gate();
+        if (budgetHit()) break; // run-wide click budget reached — don't open another app
         const id = apps[i];
         setStatus(`Opening ${id}`);
         navigate("/"); // ensure we're on the portal
@@ -513,9 +535,17 @@ async function run(): Promise<void> {
         const tile = document.querySelector<HTMLElement>(`[data-app="${id}"]`);
         if (tile) realClick(tile); // enter via the launcher tile (mirrors the sweep)
         else navigate("/" + id);
+        totalActions++; // entering the app is a click (counts toward the budget)
+        emit();
         await tick(500);
 
         await sweepApp(id, i, apps.length);
+
+        // Budget reached during the sweep: stop the whole run now, before the Home click.
+        if (budgetHit()) {
+          setStatus("Reached click budget");
+          break;
+        }
 
         // Home LAST — only after the app's elements are exhausted.
         await gate();
@@ -523,6 +553,8 @@ async function run(): Promise<void> {
         const home = document.querySelector<HTMLElement>(HOME_SELECTOR);
         if (home) realClick(home);
         else navigate("/");
+        totalActions++; // returning home is a click (counts toward the budget)
+        emit();
         await tick(400);
         setProgress(((i + 1) / apps.length) * 100);
       }
@@ -564,6 +596,7 @@ export function apStop(): void {
   state = "idle";
   status = "";
   progress = 0;
+  totalActions = 0; // clear the run-wide click counter for a tidy idle snapshot
   emit();
 }
 /** Set the action cadence (click/enter actions per second). Clamped to 1..20; default 5. Takes
@@ -574,6 +607,18 @@ export function apSetRate(n: number): void {
 }
 export function apGetRate(): number {
   return actionsPerSec;
+}
+/** Set the run-wide click budget: stop the whole run after this many performed actions (every click,
+ * typed field, control, dialog step, plus each app-enter/return-home nav). 0 (or a non-finite/negative
+ * value) = NO cap (the default). Takes effect immediately, including mid-run — the moment the running
+ * total reaches the budget, the current app's sweep stops and the run ends without opening another app.
+ * Mirrors the e2e test's E2E_MAX_CLICKS. */
+export function apSetMaxClicks(n: number): void {
+  maxActions = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  emit();
+}
+export function apGetMaxClicks(): number {
+  return maxActions;
 }
 /** Set coverage. Presets: min=20/20, half=50/50, full=100/100. custom uses x (actions %) and y
  * (apps %), each clamped 1..100. Takes effect on the NEXT run (app subset is chosen at run start;
