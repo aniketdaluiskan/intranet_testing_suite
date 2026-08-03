@@ -61,6 +61,11 @@ let maxActions = 0; // configured budget; 0 = no cap (default)
 let totalActions = 0; // performed actions so far in the CURRENT run (reset each run)
 const budgetHit = () => maxActions > 0 && totalActions >= maxActions;
 
+// Per-app tally for the end-of-run summary popup: one entry per app actually visited this run, where
+// clicks = the enter-app click + every performed sweep action in that app + its return-home click
+// (so the entries sum to totalActions). Reset each run; rendered by showSummaryPopup() on completion.
+let perApp: { id: string; clicks: number }[] = [];
+
 // ── Coverage sampling (runtime-adjustable via apSetCoverage; UI = Autopilot.tsx's Min/Half/Full/
 // Custom control). Two independent dimensions, so a quick smoke run can touch a slice of the estate
 // instead of every element of every app:
@@ -406,7 +411,7 @@ async function clickEl(el: HTMLElement): Promise<void> {
   }
 }
 
-async function sweepApp(appId: string, appIdx: number, total: number): Promise<void> {
+async function sweepApp(appId: string, appIdx: number, total: number): Promise<number> {
   let lastAction = Date.now();
   let actions = 0;
   let navCount = 0;
@@ -510,11 +515,66 @@ async function sweepApp(appId: string, appIdx: number, total: number): Promise<v
     trackNav();
     await tick();
   }
+  return actions; // performed sweep actions in this app (enter/home nav counted by the caller)
+}
+
+/** End-of-run summary popup: total clicks + a per-app breakdown, as a self-contained DOM overlay
+ * (independent of the React tree). Dismiss via the ✕, the scrim, or Esc. Never throws. */
+function showSummaryPopup(total: number, apps: { id: string; clicks: number }[]): void {
+  try {
+    if (typeof document === "undefined") return;
+    document.getElementById("ap-summary-pop")?.remove();
+    const scrim = document.createElement("div");
+    scrim.id = "ap-summary-pop";
+    scrim.setAttribute("data-ap-control", "1"); // keep any future sweep from touching it
+    scrim.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(15,23,42,.55);font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;";
+    const rows = apps.length
+      ? apps
+          .map(
+            (a) =>
+              `<div style="display:flex;justify-content:space-between;gap:16px;padding:3px 0;border-top:1px solid #eef2f7">` +
+              `<span style="color:#334155">${a.id}</span>` +
+              `<b style="color:#0f172a;font-variant-numeric:tabular-nums">${a.clicks}</b></div>`,
+          )
+          .join("")
+      : `<div style="color:#64748b;padding:6px 0">No apps visited.</div>`;
+    const card = document.createElement("div");
+    card.style.cssText =
+      "background:#fff;color:#0f172a;max-width:420px;width:88vw;max-height:78vh;overflow:auto;" +
+      "border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);padding:18px 20px;";
+    card.innerHTML =
+      `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">` +
+      `<strong style="font-size:15px">Autopilot complete</strong>` +
+      `<button id="ap-summary-x" title="Close" style="border:0;background:none;font-size:18px;line-height:1;cursor:pointer;color:#64748b">✕</button>` +
+      `</div>` +
+      `<div style="color:#475569;margin-bottom:10px"><b style="color:#0f172a">${total}</b> click${total === 1 ? "" : "s"} ` +
+      `across <b style="color:#0f172a">${apps.length}</b> app${apps.length === 1 ? "" : "s"}</div>` +
+      rows;
+    scrim.appendChild(card);
+    const close = () => {
+      scrim.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    scrim.addEventListener("click", (e) => {
+      if (e.target === scrim) close();
+    });
+    card.querySelector<HTMLButtonElement>("#ap-summary-x")?.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(scrim);
+  } catch {
+    /* a summary popup must never break the run */
+  }
 }
 
 async function run(): Promise<void> {
   try {
     totalActions = 0; // fresh run-wide click budget counter
+    perApp = []; // fresh per-app tally for the summary popup
     setProgress(0);
     setStatus("Opening portal");
     navigate("/");
@@ -522,13 +582,15 @@ async function run(): Promise<void> {
 
     const apps = sampleApps(discoverApps()); // coverage: traverse a random Y% subset (Y<100)
     if (apps.length === 0) {
-      await sweepApp("page", 0, 1);
+      const swept = await sweepApp("page", 0, 1);
+      perApp.push({ id: "page", clicks: swept });
       setProgress(100);
     } else {
       for (let i = 0; i < apps.length; i++) {
         await gate();
         if (budgetHit()) break; // run-wide click budget reached — don't open another app
         const id = apps[i];
+        let appClicks = 0; // enter + sweep + home clicks attributed to this app (for the summary)
         setStatus(`Opening ${id}`);
         navigate("/"); // ensure we're on the portal
         await tick(300);
@@ -536,13 +598,15 @@ async function run(): Promise<void> {
         if (tile) realClick(tile); // enter via the launcher tile (mirrors the sweep)
         else navigate("/" + id);
         totalActions++; // entering the app is a click (counts toward the budget)
+        appClicks++;
         emit();
         await tick(500);
 
-        await sweepApp(id, i, apps.length);
+        appClicks += await sweepApp(id, i, apps.length);
 
         // Budget reached during the sweep: stop the whole run now, before the Home click.
         if (budgetHit()) {
+          perApp.push({ id, clicks: appClicks });
           setStatus("Reached click budget");
           break;
         }
@@ -554,13 +618,16 @@ async function run(): Promise<void> {
         if (home) realClick(home);
         else navigate("/");
         totalActions++; // returning home is a click (counts toward the budget)
+        appClicks++;
         emit();
+        perApp.push({ id, clicks: appClicks });
         await tick(400);
         setProgress(((i + 1) / apps.length) * 100);
       }
       setProgress(100);
     }
     setStatus("Complete");
+    showSummaryPopup(totalActions, perApp); // end-of-run popup: total clicks + per-app breakdown
     await sleep(600);
   } catch {
     /* stopped */
